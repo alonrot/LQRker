@@ -84,7 +84,13 @@ class GenerateLQRData():
 	resulting quadratic cost, according to the empirical weights (Q_emp,R_emp)
 	"""
 
-	def __init__(self,Q_emp,R_emp,mu0,Sigma0,check_controllability=True):
+	def __init__(self,Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=True):
+
+		# Number of systems to sample:
+		self.Nsys = Nsys
+
+		# Number of controller designs to sample, for each samples system:
+		self.Ncon = Ncon
 
 		self.dim_state = Q_emp.shape[0]
 		self.dim_control = R_emp.shape[0]
@@ -110,7 +116,9 @@ class GenerateLQRData():
 
 	def _check_controllability(self,A,B):
 		
-		assert A.shape[0] > 1, "This function is not designed for scalar systems"
+		# assert A.shape[0] > 1, "This function is not designed for scalar systems"
+		if A.shape[0] == 1:
+			return
 
 		# Controlability:
 		ctrb = B
@@ -121,11 +129,9 @@ class GenerateLQRData():
 
 		rank = np.linalg.matrix_rank(ctrb)
 
-
 		# assert rank == A.shape[0], "The generated system is not controllable"
 		# if rank != A.shape[0]:
 		# 	pdb.set_trace()
-
 
 	def _sample_controller_design_parameters(self,Nsamples_controller):
 
