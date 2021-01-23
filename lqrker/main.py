@@ -12,14 +12,15 @@ def custom_training_loop():
 
 	in_dim = 1
 	num_features_out = 16
-	T = 101
+	T = 6
 	Sigma_noise_std = 0.1
 	Sigma_noise = Sigma_noise_std**2
+	xlim = [-2.,2.]
 
-	Ninstances = 20
+	Ninstances = 20 # Average over "trajectories"
 
 	# Inputs:
-	Xtrain = tf.random.uniform(shape=(Ninstances*T,in_dim), minval=-2.0, maxval=2.0, dtype=tf.dtypes.float32, seed=None, name=None)
+	Xtrain = tf.random.uniform(shape=(Ninstances*T,in_dim), minval=xlim[0], maxval=xlim[1])
 
 	# Output function (LQR cost):
 	# pdb.set_trace()
@@ -77,50 +78,52 @@ def custom_training_loop():
 		# print("Seen so far: %d samples" % ((Ninstances*(T-1) ) )
 
 
-	# Plotting prior:
+	# Plotting prior and predictive
 	# ==============
 	if in_dim == 1:
-		x_test = tf.reshape(tf.linspace(-2,+2,101),[-1,1])
-		mean, cov = blr.q_learned_prior(x_test)
-		std = tf.sqrt(tf.linalg.diag_part(cov))
 		
-		# pdb.set_trace()
+		# Grid:
+		x_test = tf.reshape(tf.linspace(-2,+2,101),[-1,1])
 
-		hdl_fig, hdl_plot = plt.subplots(1,1)
+		# Prior:
+		mean_prior, cov_prior = blr.q_learned_prior(x_test)
+		std_prior = tf.sqrt(tf.linalg.diag_part(cov_prior))
+
+		# Predictive:
+		Ntest = T - 1 # Same as the number of points we train with
+		Xtest = tf.random.uniform(shape=(Ntest,in_dim), minval=xlim[0], maxval=xlim[1])
+		Ytest = y_true(Xtest)
+		Ytest = tf.reshape(Ytest,[-1,1])
+		mean_post, cov_post = blr.q_predictive_gaussian(X=Xtest, Y=Ytest, x_new=x_test)
+		std_post = tf.sqrt(tf.linalg.diag_part(cov_post))
+
+		# Plotting:
+		hdl_fig, hdl_plot = plt.subplots(2,1,figsize=(6,6))
+		hdl_prior = hdl_plot[0]
+		hdl_post = hdl_plot[1]
+
+		# Plot prior:
 		x_test_np = x_test.numpy()[:,0]
-		mean_np = mean.numpy()[:,0]
-		std_np = std.numpy()
-		hdl_plot.plot(x_test_np,mean_np,color="blue",linestyle="-",linewidth=3)
-		hdl_plot.fill(np.concatenate([x_test_np, x_test_np[::-1]]),np.concatenate([mean_np-std_np,(mean_np+std_np)[::-1]]),\
+		mean_prior_np = mean_prior.numpy()[:,0]
+		std_prior_np = std_prior.numpy()
+		hdl_prior.plot(x_test_np,mean_prior_np,color="blue",linestyle="-",linewidth=3)
+		hdl_prior.fill(np.concatenate([x_test_np, x_test_np[::-1]]),np.concatenate([mean_prior_np-std_prior_np,(mean_prior_np+std_prior_np)[::-1]]),\
 			# alpha=.2, fc=color_var, ec='None', label='95% confidence interval')
 			alpha=.2, fc="blue", ec='None')
+		hdl_prior.set_xlim(xlim)
+
+		# Plot predictive:
+		x_test_np = x_test.numpy()[:,0]
+		mean_post_np = mean_post.numpy()[:,0]
+		std_post_np = std_post.numpy()
+		hdl_post.plot(x_test_np,mean_post_np,color="blue",linestyle="-",linewidth=3)
+		hdl_post.fill(np.concatenate([x_test_np, x_test_np[::-1]]),np.concatenate([mean_post_np-std_post_np,(mean_post_np+std_post_np)[::-1]]),\
+			# alpha=.2, fc=color_var, ec='None', label='95% confidence interval')
+			alpha=.2, fc="blue", ec='None')
+		hdl_post.set_xlim(xlim)
+		hdl_post.plot(Xtest.numpy()[:,0],Ytest.numpy(),marker="o",linestyle="None",color="black",markersize=5)
 
 		plt.show(block=True)
-
-
-	# Using T test samples, to validate the posterior
-	# ===============================================
-	#
-	# x_test = tf.linspace(-2,+2,101)
-	x_test = tf.random.uniform(shape=(T,in_dim), minval=-2.0, maxval=2.0, dtype=tf.dtypes.float32, seed=None, name=None)
-	y_test = y_true(x_test)
-	y_test = tf.reshape(y_test,[-1,1])
-
-	X = x_test[0:-1,:]
-	Y = y_test[0:-1]
-
-	x_new = tf.reshape(x_test[-1,:],[-1,in_dim])
-	y_new = tf.reshape(y_test[-1],[-1,1])
-
-	# pdb.set_trace()
-
-	mean, cov = blr.q_predictive_gaussian(X, Y, x_new)
-
-	print("")
-	print("mean:",mean)
-	print("cov:",cov)
-
-
 
 	# Things to try:
 	# 1) Reduce/remove the eye noise added to Lambda0, to make sure it doesn't have an influence
