@@ -1,1 +1,6 @@
 lqrker.egg-info
+*.pyc
+__pycache__/
+*/__pycache__/
+*.egg-info/
+.DS_Store
