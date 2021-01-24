@@ -155,7 +155,7 @@ class GenerateLQRData():
 		mat_samples = np.random.multivariate_normal(mean=M.ravel(), cov=np.kron(V, U),size=Nsamples).reshape( [-1,M.shape[0],M.shape[1]] )
 		return mat_samples
 
-	def compute_cost_for_each_controller(self,):
+	def compute_cost_for_each_controller(self):
 		"""
 		We sample Nsys linear time-invariant systems living within the system uncertainty and, 
 		for each system, we sample Ncon controller designs (Q_des,R_des)
@@ -168,17 +168,15 @@ class GenerateLQRData():
 		theta_pars_all: [(dim_state + dim_control) x  ]
 		"""
 
-		Nsys = 10
-		Ncon = 15
-		cost_values_all = np.zeros((Nsys,Ncon))
-		theta_pars_all = np.zeros((self.dim_state + self.dim_control,Nsys,Ncon))
+		cost_values_all = np.zeros((self.Nsys,self.Ncon))
+		theta_pars_all = np.zeros((self.dim_state + self.dim_control,self.Nsys,self.Ncon))
 		
-		A_samples, B_samples = self._sample_systems(Nsamples=Nsys)
-		for ii in range(Nsys):
+		A_samples, B_samples = self._sample_systems(Nsamples=self.Nsys)
+		for ii in range(self.Nsys):
 
-			Q_des_samples, R_des_samples, theta_pars = self._sample_controller_design_parameters(Ncon)
+			Q_des_samples, R_des_samples, theta_pars = self._sample_controller_design_parameters(self.Ncon)
 			theta_pars_all[:,ii,:] = theta_pars[:,:]
-			for jj in range(Ncon):
+			for jj in range(self.Ncon):
 
 
 				Q_des = Q_des_samples[:,:,jj]

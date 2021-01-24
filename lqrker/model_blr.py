@@ -11,7 +11,12 @@ class MyDenseReLuLayer(tf.keras.layers.Layer):
 
 	def call(self, inputs):
 		y = tf.matmul(inputs, self.w) + self.b
-		return tf.nn.relu(y)
+		# return tf.nn.relu(y)
+		return tf.math.cos(y)
+		# return tf.nn.tanh(y)
+		# return tf.math.tanh(y)
+		# return tf.keras.activations.tanh(y)
+
 
 
 class ModelFeatures(tf.keras.Model):
