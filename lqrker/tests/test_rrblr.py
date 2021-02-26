@@ -14,7 +14,7 @@ if __name__ == "__main__":
 	# Hypercube domain:
 	L = 4.0
 	Lred = 0.5*L # Training data should be in a reduced domain due to the Dirichlet boundary conditions
-	Nfeat = 200 # Number of features
+	Nfeat = 180 # Number of features
 
 	# R-R-BLR:
 	rrblr = ReducedRankBayesianLinearRegression(dim=dim,Nfeat=Nfeat,L=4.0,sigma_n=0.1)
@@ -33,21 +33,32 @@ if __name__ == "__main__":
 	else:
 		xpred = tf.random.uniform(shape=(20,dim),minval=-L,maxval=L)
 
+	# Compute derivative:
+	mean_pred_der, std_pred_der = rrblr.get_predictive_moments_grad(xpred)
+	# pdb.set_trace()
+
 	# Compute predictive moments:
 	mean_pred, cov_pred = rrblr.get_predictive_moments(xpred)
 	std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
 
 	if dim == 1:
-		hdl_fig, hdl_splots = plt.subplots(1,1,figsize=(14,10),sharex=True)
+		hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(14,10),sharex=True)
 		hdl_fig.suptitle("Reduced-rank GP (Särkkä)")
-		hdl_splots.plot(xpred,mean_pred)
+		hdl_splots[0].plot(xpred,mean_pred)
 		fpred_quan_plus = mean_pred + std_pred
 		fpred_quan_minus = mean_pred - std_pred
-		hdl_splots.fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
+		hdl_splots[0].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
 			alpha=.2, fc="blue", ec='None')
-		hdl_splots.plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
-		hdl_splots.set_xlim([xpred[0,0],xpred[-1,0]])
+		hdl_splots[0].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
+		hdl_splots[0].set_xlim([xpred[0,0],xpred[-1,0]])
+
+
+		hdl_splots[1].plot(xpred,mean_pred_der)
+		fpred_quan_plus = mean_pred_der + std_pred_der
+		fpred_quan_minus = mean_pred_der - std_pred_der
+		hdl_splots[1].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
+			alpha=.2, fc="blue", ec='None')
+
+
 		plt.show(block=True)
-
-
 
