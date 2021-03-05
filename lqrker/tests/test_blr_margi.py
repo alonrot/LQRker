@@ -12,9 +12,9 @@ def cost_linear(X,sigma_n):
 
 if __name__ == "__main__":
 	
-	dim = 2
+	dim = 1
 	Nfeat = dim*(dim+1)//2 + dim + 1
-	sigma_n = 1.0
+	sigma_n = 0.5
 	sigma2_n = sigma_n**2
 	blrmargi = BLRQuadraticFeatures(in_dim=dim,
 									num_features=Nfeat,
@@ -22,10 +22,10 @@ if __name__ == "__main__":
 	Xlim = 5.0
 
 	# Evaluate:
-	Nevals = 5
+	Nevals = 1
 	X = tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
-	# Y = cost_linear(X,sigma_n)
-	Y = cost_parabola(X,sigma_n)
+	Y = cost_linear(X,sigma_n)
+	# Y = cost_parabola(X,sigma_n)
 	
 	blrmargi.update_model(X,Y)
 

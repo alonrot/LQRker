@@ -4,8 +4,11 @@ import math
 import matplotlib.pyplot as plt
 from lqrker.models.rrblr import ReducedRankBayesianLinearRegression
 
-def cost(X):
-	return tf.reduce_sum( X**2 , axis = 1)
+def cost_parabola(X,sigma_n):
+	return tf.reduce_sum(X**2,axis=1) + tf.random.normal(shape=(X.shape[0],), mean=0.0, stddev=sigma_n)
+
+def cost_linear(X,sigma_n):
+	return tf.reduce_sum(X,axis=1) + tf.random.normal(shape=(X.shape[0],), mean=0.0, stddev=sigma_n)
 
 if __name__ == "__main__":
 	
@@ -14,15 +17,18 @@ if __name__ == "__main__":
 	# Hypercube domain:
 	L = 4.0
 	Lred = 0.5*L # Training data should be in a reduced domain due to the Dirichlet boundary conditions
-	Nfeat = 180 # Number of features
+	# Nfeat = 180 # Number of features
+	Nfeat = dim*(dim+1)//2 + dim + 1 # quadratic features
+	sigma_n = 0.1
 
 	# R-R-BLR:
-	rrblr = ReducedRankBayesianLinearRegression(dim=dim,Nfeat=Nfeat,L=4.0,sigma_n=0.1)
+	rrblr = ReducedRankBayesianLinearRegression(dim=dim,Nfeat=Nfeat,L=4.0,sigma_n=sigma_n)
 
 	# Evaluate:
-	Nevals = 10
+	Nevals = 3
 	X = tf.random.uniform(shape=(Nevals,dim),minval=-Lred,maxval=Lred)
-	Y = cost(X)
+	Y = cost_linear(X,sigma_n=sigma_n)
+	# Y = cost_parabola(X,sigma_n)
 	
 	rrblr.update_dataset(X,Y)
 

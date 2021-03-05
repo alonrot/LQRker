@@ -53,8 +53,8 @@ class BayesianLinearRegressionMarginalizedWeights(ABC):
 
 	def _update_features(self):
 		"""
-
-		
+		Following [1]
+		[1] Minka, T., 2000. Bayesian linear regression. Technical report, MIT.
 		"""
 
 		self.PhiX = self.get_features_mat(self.X) # [Npoints, Nfeat]
@@ -76,12 +76,6 @@ class BayesianLinearRegressionMarginalizedWeights(ABC):
 		return: PhiX: [Npoints, Nfeat]
 		"""
 		raise NotImplementedError
-		# print("abstractmethod")
-
-		# Npoints = X.shape[0]
-		# PhiX = tf.random.uniform(shape=(Npoints,self.num_features), minval=0.0, maxval=1.0)
-
-		# return PhiX # [Npoints, Nfeat]
 
 	def get_predictive_moments(self,xpred):
 		"""

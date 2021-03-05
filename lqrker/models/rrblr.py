@@ -91,7 +91,8 @@ class ReducedRankBayesianLinearRegression:
 		self.PhiX = self.get_features_mat(self.X)
 
 		# TODO: See if we can 'cache' the line below:
-		Lambda_inv_times_noise_var = tf.linalg.diag( self.sigma2_n * 1./self.spectral_density(tf.sqrt(self.eigvals)) )
+		Lambda_inv_times_noise_var = tf.linalg.diag( self.sigma2_n * 1./self.spectral_density(tf.sqrt(self.eigvals)) ) # original
+		# Lambda_inv_times_noise_var = self.sigma2_n*tf.eye(self.Nfeat) # [DBG] qudratic features
 		
 		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Lambda_inv_times_noise_var ) # Lower triangular
 
@@ -108,12 +109,37 @@ class ReducedRankBayesianLinearRegression:
 		return tf.reduce_sum(Ljj,axis=1) # [Nfeat,]
 
 	def get_features_mat(self,x):
+		"""
+
+		x: [Npoints, dim]
+		return: [Npoints, Nfeat]
+		"""
 		
 		xx = tf.stack([x]*self.Nfeat) # [Nfeat, Npoints, dim]
 		# jj = tf.reshape(tf.range(self.Nfeat,dtype=tf.float32),(-1,1,1)) # [Nfeat, 1, 1]
 		# pdb.set_trace()
 		feat = 1/tf.sqrt(self.L) * tf.sin( math.pi*self.jj*(xx + self.L)/(2.*self.L) ) # [Nfeat, Npoints, dim]
 		return tf.transpose(tf.reduce_prod(feat,axis=-1)) # [Npoints, Nfeat]
+
+	# def get_features_mat(self,X):
+	# 	"""
+	# 	[DBG] qudratic features
+
+	# 	X: [Npoints, in_dim]
+	# 	return: PhiX: [Npoints, Nfeat]
+	# 	"""
+
+	# 	Npoints = X.shape[0]
+	# 	SQRT2 = math.sqrt(2)
+
+	# 	if self.dim == 1:
+	# 		PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , X**2 ],axis=1)
+	# 	elif self.dim == 2:
+	# 		PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , SQRT2*tf.math.reduce_prod(X,axis=1,keepdims=True) , X**2 ],axis=1)
+	# 	else:
+	# 		raise NotImplementedError
+
+	# 	return PhiX # [Npoints, Nfeat]
 
 	def get_features_mat_grad(self,x):
 		"""
