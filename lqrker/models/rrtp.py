@@ -5,6 +5,9 @@ from abc import ABC, abstractmethod
 # import numpy as np
 # import tensorflow.experimental.numpy as tnp # https://www.tensorflow.org/guide/tf_numpy
 
+import numpy as np
+from lqrker.solve_lqr import GenerateLQRData
+
 class ReducedRankStudentTProcessBase(ABC):
 	"""
 
@@ -65,6 +68,8 @@ class ReducedRankStudentTProcessBase(ABC):
 
 		self.PhiX = self.get_features_mat(self.X)
 		
+		# pdb.set_trace()
+
 		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.Sigma_weights_inv_times_noise_var ) # Lower triangular
 
 		self.M = tf.zeros((self.X.shape[0],1))
@@ -127,5 +132,55 @@ class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 			raise NotImplementedError
 
 		return PhiX # [Npoints, Nfeat]
+
+
+class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
+
+	def __init__(self, dim, Nfeat, sigma_n, nu):
+		super().__init__(dim, Nfeat, sigma_n, nu)
+
+		# Parameters:
+		Q_emp = np.array([[1.0]])
+		R_emp = np.array([[0.1]])
+		dim_state = Q_emp.shape[0]
+		dim_control = R_emp.shape[1]		
+		mu0 = np.zeros((dim_state,1))
+		Sigma0 = np.eye(dim_state)
+		Nsys = Nfeat
+		Ncon = 1 # Not needed
+
+		# Generate systems:
+		self.lqr_data = GenerateLQRData(Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=True)
+		self.A_samples, self.B_samples = self.lqr_data._sample_systems(Nsamples=Nfeat)
+
+		for ii in range(Nfeat):
+			self.lqr_data._check_controllability(self.A_samples[ii,:,:], self.B_samples[ii,:,:])
+
+	def get_features_mat(self,X):
+		"""
+		X: [Npoints, in_dim]
+		return: PhiX: [Npoints, Nfeat]
+		"""
+
+		assert self.dim == 1
+
+		Npoints = X.shape[0]
+		cost_values_all = np.zeros((Npoints,self.Nfeat))
+		for ii in range(Npoints):
+
+			Q_des = tf.expand_dims(X[ii,:],axis=1)
+			R_des = np.array([[0.1]])
+			
+			for jj in range(self.Nfeat):
+
+				cost_values_all[ii,jj] = self.lqr_data.solve_lqr.forward_simulation(self.A_samples[jj,:,:], self.B_samples[jj,:,:], Q_des, R_des)
+
+
+		return tf.convert_to_tensor(cost_values_all,dtype=tf.float32) # [Npoints, Nfeat]
+
+
+
+
+
 
 

@@ -12,9 +12,9 @@ def cost_linear(X,sigma_n):
 
 if __name__ == "__main__":
 	
-	dim = 2
+	dim = 1
 	Nfeat = dim*(dim+1)//2 + dim + 1
-	sigma_n = 0.5
+	sigma_n = 1.0
 	nu = 2.5
 	rrtp = RRTPQuadraticFeatures(dim=dim,
 									Nfeat=Nfeat,
@@ -23,11 +23,15 @@ if __name__ == "__main__":
 	Xlim = 5.0
 
 	# Evaluate:
-	Nevals = 5
+	Nevals = 10
 	X = tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
 	# Y = cost_linear(X,sigma_n)
-	Y = cost_parabola(X,0.1*sigma_n)
-	
+	Yex = cost_parabola(X,0.1*sigma_n)
+
+	# # pdb.set_trace()
+	# Y = Yex + tf.constant([5.0]+[0.0]*(Yex.shape[0]-1))
+	Y = Yex
+
 	rrtp.update_model(X,Y)
 
 	# Prediction/test locations:
@@ -44,7 +48,7 @@ if __name__ == "__main__":
 
 	if dim == 1:
 		hdl_fig, hdl_splots = plt.subplots(1,1,figsize=(14,10),sharex=True)
-		hdl_fig.suptitle("Reduced-rank GP (Särkkä)")
+		hdl_fig.suptitle("Reduced-rank Student-t process")
 		hdl_splots.plot(xpred,mean_pred)
 		fpred_quan_plus = mean_pred + std_pred
 		fpred_quan_minus = mean_pred - std_pred

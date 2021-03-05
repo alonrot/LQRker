@@ -14,17 +14,20 @@ if __name__ == "__main__":
 	
 	dim = 1
 	Nfeat = dim*(dim+1)//2 + dim + 1
-	sigma_n = 0.5
+	sigma_n = 1.0
 	rrgp = RRGPQuadraticFeatures(dim=dim,
 									Nfeat=Nfeat,
 									sigma_n=sigma_n)
 	Xlim = 5.0
 
 	# Evaluate:
-	Nevals = 2
+	Nevals = 10
 	X = tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
 	# Y = cost_linear(X,sigma_n)
-	Y = cost_parabola(X,0.1*sigma_n)
+	Yex = cost_parabola(X,0.1*sigma_n)
+
+	# Y = Yex + tf.constant([5.0]+[0.0]*(Yex.shape[0]-1))
+	Y = Yex
 	
 	rrgp.update_model(X,Y)
 
