@@ -39,9 +39,16 @@ class ReducedRankBayesianLinearRegression:
 	def add2dataset(self,xnew,ynew):
 		pass
 
-	def spectral_density_matern(self,omega_vec):
-		# TODO: Make sure that here we are required to enter a vetor, not a scalar (see appendix from Sarkaa)
+	def spectral_density_matern(self,omega_in):
+		"""
+
+		The spectral density function maps R+ -> R+
+
+		However, look at the following TODO:
 		# TODO: Look at eq. (4.15) from Rasmussen. It actually depends on the dimensionality D, and it's not multidimensional!!! :(
+				See also appendix from Sarkaa
+				See also the Sarkka lecture. therein, the density function is R^D -> R, which will imply major modification in this entire class
+		"""
 
 		# Using now the N-dimensional formulation from Rasmussen
 
@@ -50,15 +57,15 @@ class ReducedRankBayesianLinearRegression:
 		ls = 0.5
 		lambda_val = tf.sqrt(2*nu)/ls
 
-		# S_vec = ((2*tf.sqrt(math.pi)*tf.exp(tf.math.lgamma(nu+0.5))) / (tf.exp(tf.math.lgamma(nu)))) * lambda_val**(2*nu)/((lambda_val**2 + omega_vec**2)**(nu+0.5))
+		# S_vec = ((2*tf.sqrt(math.pi)*tf.exp(tf.math.lgamma(nu+0.5))) / (tf.exp(tf.math.lgamma(nu)))) * lambda_val**(2*nu)/((lambda_val**2 + omega_in**2)**(nu+0.5))
 		const = ((2*tf.sqrt(math.pi))**self.dim)*tf.exp(tf.math.lgamma(nu+0.5*self.dim))*lambda_val**(2*nu) / tf.exp(tf.math.lgamma(nu))
-		S_vec = const / ((lambda_val**2 + omega_vec**2)**(nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
+		S_vec = const / ((lambda_val**2 + omega_in**2)**(nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
 
 		# print("S_vec:",S_vec)
 
 		# from scipy.special import gamma
 		# import numpy as np
-		# S_vec = self.sigma2_n * ((2*np.sqrt(np.pi)*gamma(nu+0.5)) / (gamma(nu))) * lambda_val**(2*nu)/((lambda_val**2 + omega_vec**2)**(nu+0.5))
+		# S_vec = self.sigma2_n * ((2*np.sqrt(np.pi)*gamma(nu+0.5)) / (gamma(nu))) * lambda_val**(2*nu)/((lambda_val**2 + omega_in**2)**(nu+0.5))
 		# print("S_vec np:",S_vec)
 
 		# pdb.set_trace()
@@ -66,12 +73,12 @@ class ReducedRankBayesianLinearRegression:
 		return S_vec
 
 
-	def spectral_density_SE(self,omega_vec):
+	def spectral_density_SE(self,omega_in):
 
 		ls = 0.1
 
 		const = (tf.sqrt(2*math.pi)*ls)**self.dim
-		S_vec = const * tf.exp( -2*math.pi**2 * ls**2 * omega_vec**2 )
+		S_vec = const * tf.exp( -2*math.pi**2 * ls**2 * omega_in**2 )
 
 		return S_vec
 
@@ -82,10 +89,17 @@ class ReducedRankBayesianLinearRegression:
 		"""
 
 		self.PhiX = self.get_features_mat(self.X)
+
+		# TODO: See if we can 'cache' the line below:
 		Lambda_inv_times_noise_var = tf.linalg.diag( self.sigma2_n * 1./self.spectral_density(tf.sqrt(self.eigvals)) )
+		
 		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Lambda_inv_times_noise_var ) # Lower triangular
 
 	def _get_eigenvalues(self):
+		"""
+
+		Eigenvalues of the laplace operator
+		"""
 
 		Lstack = tf.stack([self.L]*self.Nfeat) # [Nfeat, dim]
 		jj = tf.reshape(tf.range(1,self.Nfeat+1,dtype=tf.float32),(-1,1)) # [Nfeat, 1]
@@ -131,7 +145,12 @@ class ReducedRankBayesianLinearRegression:
 			phase_der = tf.constant([0.0]*ii + [math.pi/2.0] + [0.0]*(self.dim - ii - 1)) #[0, 0, ..., pi/2, ..., 0, 0], where pi/2 is placed at index ii
 
 			# No problem with this:
-			feat_der = math.pi*self.jj/(2.*self.L) * 1/tf.sqrt(self.L) * tf.sin( math.pi*self.jj*(xx + self.L)/(2.*self.L) + phase_der) # [Nfeat, Npoints, dim]
+			# Notice the term (math.pi*self.jj/(2.*self.L))**(1/self.dim). It comes
+			# from derivating the sin() function. It needs to be exponentiated to
+			# **(1/self.dim) because later the prod() across dimensions will be taken.
+			# TODO: Figure out a way of not having to exponentiate with **(1/self.dim)
+			# TODO: Make sure the 1/tf.sqrt(self.L) isn't redundant with the new termn. Where does 1/tf.sqrt(self.L) come from???
+			feat_der = (math.pi*self.jj/(2.*self.L))**(1/self.dim) * 1/tf.sqrt(self.L) * tf.sin( math.pi*self.jj*(xx + self.L)/(2.*self.L) + phase_der) # [Nfeat, Npoints, dim]
 
 			# To create feat_grad with dimensions [dim, Npoints, Nfeat]:
 				# This involves item assignment, which is forbidden in tensorflow. We could define feat_grad using numpy to do the item assignment. But then, we depend on numpy. tensorflow.experimental.numpy also doesn't support item assignment.
@@ -167,8 +186,10 @@ class ReducedRankBayesianLinearRegression:
 		"""
 
 		TODO: In the future, return a matrix cov_pred_der: [Npoints, dim, dim]
-		Essentially, for each of the Npoints gradients, the covariance matrix of the gradient with itself needs to be computed across all dimensions, and hence, it is a tensor.
-		We might need this.
+		Essentially, for each of the Npoints gradients, the covariance matrix of the gradient with itself needs to be computed across all dimensions, and hence, it is a tensor [dim x dim].
+		Hence, for each of the Npoints gradients we have one [dim x dim] matrix.
+		We might need this. This can be returned as a [Npoints x dim x dim] tensor, or as a block-diagonal matrix [Npoints*dim x Npoints*dim]
+		
 		Instead, what we are returning right now is only the diagonal elements of such covariance matrix, which results in a matrix [Npoints, dim]
 		"""
 
