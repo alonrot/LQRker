@@ -27,8 +27,8 @@ if __name__ == "__main__":
 	# Evaluate:
 	Nevals = 3
 	X = tf.random.uniform(shape=(Nevals,dim),minval=-Lred,maxval=Lred)
-	Y = cost_linear(X,sigma_n=sigma_n)
-	# Y = cost_parabola(X,sigma_n)
+	# Y = cost_linear(X,sigma_n=sigma_n)
+	Y = cost_parabola(X,sigma_n)
 	
 	rrblr.update_dataset(X,Y)
 
