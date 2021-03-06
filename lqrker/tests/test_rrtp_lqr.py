@@ -7,7 +7,9 @@ from lqrker.models.rrtp import RRTPLQRfeatures
 import numpy as np
 from lqrker.solve_lqr import GenerateLQRData
 
-def cost(X,sigma_n):
+import gpflow
+
+def cost(X,sigma_n,A_samples=None,B_samples=None):
 
 	assert X.shape[1] == 1, "Cost tailored for 1-dim, for now"
 
@@ -23,7 +25,8 @@ def cost(X,sigma_n):
 
 	# Generate systems:
 	lqr_data = GenerateLQRData(Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=True)
-	A_samples, B_samples = lqr_data._sample_systems(Nsamples=Nsys)
+	if A_samples is None and B_samples is None:
+		A_samples, B_samples = lqr_data._sample_systems(Nsamples=Nsys)
 
 	Npoints = X.shape[0]
 	cost_values_all = np.zeros(Npoints)
@@ -39,14 +42,14 @@ def cost(X,sigma_n):
 
 	# pdb.set_trace()
 
-	return tf.convert_to_tensor(cost_values_all,dtype=tf.float32) # [Npoints, Nfeat]
+	return tf.convert_to_tensor(cost_values_all,dtype=tf.float32), A_samples, B_samples # [Npoints, Nfeat], __, __
 
 
 if __name__ == "__main__":
 	
 	dim = 1
 	Nfeat = 200
-	sigma_n = 0.5
+	sigma_n = 0.5 # The cholesky decomposition is sensitive to this number. If too small, it fails
 	nu = 2.5
 	rrtp_lqr = RRTPLQRfeatures(dim=dim,
 									Nfeat=Nfeat,
@@ -55,9 +58,9 @@ if __name__ == "__main__":
 	Xlim = 2.0
 
 	# Evaluate:
-	Nevals = 5
+	Nevals = 15
 	X = 10**tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
-	Yex = cost(X,0.1*sigma_n)
+	Yex, A_samples, B_samples = cost(X,0.1*sigma_n)
 
 	# # pdb.set_trace()
 	# Y = Yex + tf.constant([5.0]+[0.0]*(Yex.shape[0]-1))
@@ -75,28 +78,57 @@ if __name__ == "__main__":
 	# Compute predictive moments:
 	mean_pred, cov_pred = rrtp_lqr.get_predictive_moments(xpred)
 	std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
+
+	# Regression with gpflow:
 	# pdb.set_trace()
+	ker = gpflow.kernels.Matern52()
+	XX = tf.cast(X,dtype=tf.float64)
+	YY = tf.cast(tf.reshape(Y,(-1,1)),dtype=tf.float64)
+	mod = gpflow.models.GPR(data=(XX,YY), kernel=ker, mean_function=None)
+	mod.likelihood.variance.assign(sigma_n**2)
+	mod.kernel.lengthscales.assign(10)
+	mod.kernel.variance.assign(5.0)
+	xxpred = tf.cast(xpred,dtype=tf.float64)
+	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
+	opt = gpflow.optimizers.Scipy()
+	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=100))
+	gpflow.utilities.print_summary(mod)
+
+	# pdb.set_trace()
+
+	# Calculate true cost:
+	f_cost,_,_ = cost(xpred,0.0,A_samples,B_samples)
 
 	if dim == 1:
 
 		# xpred = tf.convert_to_tensor(tf.experimental.numpy.log10(xpred))
 
-		hdl_fig, hdl_splots = plt.subplots(1,1,figsize=(14,10),sharex=True)
+		hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(14,10),sharex=True)
 		hdl_fig.suptitle("Reduced-rank Student-t process")
-		hdl_splots.plot(xpred,mean_pred)
+		hdl_splots[0].plot(xpred,mean_pred)
 		fpred_quan_plus = mean_pred + std_pred
 		fpred_quan_minus = mean_pred - std_pred
-		hdl_splots.fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
+		hdl_splots[0].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
 			alpha=.2, fc="blue", ec='None')
-		hdl_splots.plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
-		hdl_splots.set_xlim([xpred[0,0],xpred[-1,0]])
+		hdl_splots[0].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
+		hdl_splots[0].set_xlim([xpred[0,0],xpred[-1,0]])
+
+		# Plot true cost:
+		hdl_splots[0].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
 
-		# hdl_splots[1].plot(xpred,mean_pred_der)
-		# fpred_quan_plus = mean_pred_der + std_pred_der
-		# fpred_quan_minus = mean_pred_der - std_pred_der
-		# hdl_splots[1].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
-		# 	alpha=.2, fc="blue", ec='None')
+		hdl_splots[1].plot(xpred,mean_pred_gpflow)
+		std_pred_gpflow = tf.sqrt(var_pred_gpflow)
+		fpred_quan_plus = mean_pred_gpflow + std_pred_gpflow
+		fpred_quan_minus = mean_pred_gpflow - std_pred_gpflow
+		hdl_splots[1].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
+			alpha=.2, fc="blue", ec='None')
+		hdl_splots[1].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
+		hdl_splots[1].set_xlim([xpred[0,0],xpred[-1,0]])
+
+
+		# Plot true cost:
+		hdl_splots[1].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
 
 		plt.show(block=True)
@@ -107,6 +139,14 @@ if __name__ == "__main__":
 	TODO: 
 	1) Compare this with a standard reduced-rank GP with a Matern kernel from Sarkka.
 	2) Plot the true cost (we need to sample the llinear system only once)
+	3) Compute the entropy from the student-t distribution -> see how it depends from Sigma
+		https://math.stackexchange.com/questions/2272184/differential-entropy-of-the-multivariate-student-t-distribution
+	4) Multivariate chi-squared distribution?
+	5) HOW ABOUT learning the martix of the weights, i.e., self.Sigma_weights_inv_times_noise_var as a way
+	to adjust the hyperparameters of the model? We need to set up the class in order for the 
+	gradients to backpropagate correctly...
+
+	5) What are we gonna use this for in iLQG ???
 	"""
 
 
