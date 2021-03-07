@@ -69,6 +69,7 @@ if __name__ == "__main__":
 	rrtp_lqr.update_model(X,Y)
 
 	# Implement here a model optimization step, by optimizing self.Sigma_weights_inv_times_noise_var
+	rrtp_lqr.train_model()
 
 	# Prediction/test locations:
 	Npred = 100

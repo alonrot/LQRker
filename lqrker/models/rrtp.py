@@ -44,8 +44,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.nu = nu
 
 		# Specify weights:
-		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Ones(), trainable=True)
-		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(sigma_n**2), trainable=True)
+		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(sigma_n**2), trainable=True,name="log_noise_std")
 
 	def add2dataset(self,xnew,ynew):
 		pass
@@ -62,48 +62,79 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
 
+	def get_logdetSigma_weights(self):
+		return tf.reduce_sum(self.log_diag_vals)
+
+	def get_MLII_loss_gaussian(self):
+		"""
+
+		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
+		"""
+
+		Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
+
+		# Compute Ky_inv:
+		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
+
+		data_fit = -0.5*tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
+
+		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.linalg.logdet(Lchol)
+
+		return -data_fit - model_complexity
+
+	def get_MLII_loss(self):
+		"""
+
+		Compute the log evidence for a multivariate Student-t distribution
+		The terms that do not depend on the hyperprameters have not been included
+
+		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
+		"""
+
+		Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
+
+		# Compute Ky_inv:
+		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
+
+		# Compute data fit:
+		term_data_fit = tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
+		data_fit = -0.5*(self.nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (self.nu-2.) )
+
+		# Compute model complexity:
+		# A = det(Lchol) = prod(diag_part(Lchol))
+		# log(A) = sum(log(diag_part(Lchol)))
+		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.reduce_sum( tf.math.log( tf.linalg.diag_part(Lchol) ) )
+		# NOTE: The model complexity term that depends on the hyperparameters and data is the same is in the Gaussian case, i.e., log(det(Ky)^{-0.5})
+
+		return -data_fit - model_complexity
+
 	def train_model(self):
+		"""
 
-		# loss_kl_div = LossKLDiv(Sigma_noise)
+		"""
 
-		# optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+		learning_rate = 1e-3
+		epochs = 300
+		optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
-		# for epoch in range(epochs):
+		print(self.trainable_weights[0][0:10])
+		print(self.trainable_weights[1])
 
-		# 	with tf.GradientTape() as tape:
+		for epoch in range(epochs):
 
-		# 		loss_value = 0
-		# 		for jj in range(Ninstances-1):
+			with tf.GradientTape() as tape:
 
-		# 			X = Xtrain[ jj*Npred:(jj+1)*Npred , : ]
-		# 			Y = Ytrain[ jj*Npred:(jj+1)*Npred ]
+				# pdb.set_trace()
+				loss_value = self.get_MLII_loss()
 
-		# 			# pdb.set_trace()
-		# 			x_new = tf.reshape(X[-1,:],[-1,in_dim])
-		# 			y_new = tf.reshape(Y[-1],[-1,1])
+			grads = tape.gradient(loss_value, self.trainable_weights)
+			optimizer.apply_gradients(zip(grads, self.trainable_weights))
 
-		# 			X = X[0:-1,:]
-		# 			Y = Y[0:-1]
+			if epoch % 10 == 0:
+				print("Training loss (for one epoch) at epoch %d: %.4f" % (epoch, float(loss_value)))
 
-		# 			# pdb.set_trace()
-
-		# 			mean, cov = blr.q_predictive_gaussian(X, Y, x_new)
-
-		# 			# pdb.set_trace()
-		# 			loss_value += loss_kl_div.get(mean_pred=mean,cov_pred=cov,y_new=y_new)
-
-		# 		loss_value = loss_value / Ninstances
-
-
-		# 	grads = tape.gradient(loss_value, blr.model_features.trainable_weights)
-		# 	optimizer.apply_gradients(zip(grads, blr.model_features.trainable_weights))
-
-
-			
-		# 	if epoch % 10 == 0:
-		# 		print("Training loss (for one epoch) at epoch %d: %.4f" % (epoch, float(loss_value)))
-		# 	# print("Seen so far: %d samples" % ((Ninstances*(T-1) ) )
-		pass
+		print(self.trainable_weights[0][0:10])
+		print(self.trainable_weights[1])
 
 	def update_model(self,X,Y):
 
@@ -131,7 +162,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
-		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular
+		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular A = L.L^T
 
 		self.M = tf.zeros((self.X.shape[0],1))
 

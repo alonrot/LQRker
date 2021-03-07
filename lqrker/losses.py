@@ -6,3 +6,6 @@ class LossKLDiv():
 
 	def get(self,mean_pred,cov_pred,y_new):
 		return tf.math.log(1 + cov_pred/self.Sigma_noise) + (y_new - mean_pred)**2 / cov_pred
+
+class LossMLII():
+	def __init__(self):
