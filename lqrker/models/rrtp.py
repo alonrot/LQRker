@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 from lqrker.solve_lqr import GenerateLQRData
 
-class ReducedRankStudentTProcessBase(ABC):
+class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	"""
 
 	Reduced-Rank Student-t Process
@@ -28,22 +28,81 @@ class ReducedRankStudentTProcessBase(ABC):
 	[2] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank
 	Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
 	"""
-	def __init__(self, dim, Nfeat, sigma_n, nu):
+	def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
 		"""
 		
 		dim: Dimensionality of the input space
 		Nfeat: Number of features
 		L: Half Length of the hypercube. Each dimension has length [-L, L]
 		"""
+
+		super().__init__(**kwargs)
+
 		self.dim = dim
 		self.Nfeat = Nfeat
-		self.sigma2_n = sigma_n**2
 		assert nu > 2
 		self.nu = nu
 
-		self.Sigma_weights_inv_times_noise_var = sigma_n**2*tf.eye(Nfeat)
+		# Specify weights:
+		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Ones(), trainable=True)
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(sigma_n**2), trainable=True)
 
 	def add2dataset(self,xnew,ynew):
+		pass
+
+	def get_noise_var(self):
+		"""
+
+		TODO: Think about maybe using the softplus transform log(1 + exp(x))
+		https://en.wikipedia.org/wiki/Rectifier_(neural_networks)#Softplus
+		"""
+
+		return tf.exp(2.0*self.log_noise_std)
+
+	def get_Sigma_weights_inv_times_noise_var(self):
+		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
+
+	def train_model(self):
+
+		# loss_kl_div = LossKLDiv(Sigma_noise)
+
+		# optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+
+		# for epoch in range(epochs):
+
+		# 	with tf.GradientTape() as tape:
+
+		# 		loss_value = 0
+		# 		for jj in range(Ninstances-1):
+
+		# 			X = Xtrain[ jj*Npred:(jj+1)*Npred , : ]
+		# 			Y = Ytrain[ jj*Npred:(jj+1)*Npred ]
+
+		# 			# pdb.set_trace()
+		# 			x_new = tf.reshape(X[-1,:],[-1,in_dim])
+		# 			y_new = tf.reshape(Y[-1],[-1,1])
+
+		# 			X = X[0:-1,:]
+		# 			Y = Y[0:-1]
+
+		# 			# pdb.set_trace()
+
+		# 			mean, cov = blr.q_predictive_gaussian(X, Y, x_new)
+
+		# 			# pdb.set_trace()
+		# 			loss_value += loss_kl_div.get(mean_pred=mean,cov_pred=cov,y_new=y_new)
+
+		# 		loss_value = loss_value / Ninstances
+
+
+		# 	grads = tape.gradient(loss_value, blr.model_features.trainable_weights)
+		# 	optimizer.apply_gradients(zip(grads, blr.model_features.trainable_weights))
+
+
+			
+		# 	if epoch % 10 == 0:
+		# 		print("Training loss (for one epoch) at epoch %d: %.4f" % (epoch, float(loss_value)))
+		# 	# print("Seen so far: %d samples" % ((Ninstances*(T-1) ) )
 		pass
 
 	def update_model(self,X,Y):
@@ -70,7 +129,9 @@ class ReducedRankStudentTProcessBase(ABC):
 		
 		# pdb.set_trace()
 
-		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.Sigma_weights_inv_times_noise_var ) # Lower triangular
+		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
+
+		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular
 
 		self.M = tf.zeros((self.X.shape[0],1))
 
@@ -93,18 +154,25 @@ class ReducedRankStudentTProcessBase(ABC):
 		# Adding non-zero mean. Check that self.M is also non-zero
 		# mean_pred += tf.zeros((xpred.shape[0],1))
 
+		var_noise = self.get_noise_var()
+
 		# Get covariance:
-		K22 = self.sigma2_n * Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(Phi_pred))
+		K22 = var_noise * Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(Phi_pred))
 
 		# Update parameters from the Student-t distribution:
 		nu_pred = self.nu + self.X.shape[0]
 
 		# We copmute K11_inv using the matrix inversion lemma to avoid cubic complexity on the number of evaluations
-		K11_inv = 1/self.sigma2_n*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
+		K11_inv = 1/var_noise*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
 		beta1 = tf.transpose(self.Y - self.M) @ ( K11_inv @ (self.Y - self.M) )
 		cov_pred = (self.nu + beta1 - 2) / (nu_pred-2) * K22
 
 		return tf.squeeze(mean_pred), cov_pred
+
+	def call(self, inputs):
+		# y = tf.matmul(inputs, self.w) + self.b
+		# return tf.math.cos(y)
+		pass
 
 
 class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):

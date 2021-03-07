@@ -60,13 +60,15 @@ if __name__ == "__main__":
 	# Evaluate:
 	Nevals = 15
 	X = 10**tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
-	Yex, A_samples, B_samples = cost(X,0.1*sigma_n)
+	Yex, A_samples, B_samples = cost(X,0.05*sigma_n)
 
 	# # pdb.set_trace()
 	# Y = Yex + tf.constant([5.0]+[0.0]*(Yex.shape[0]-1))
 	Y = Yex
 
 	rrtp_lqr.update_model(X,Y)
+
+	# Implement here a model optimization step, by optimizing self.Sigma_weights_inv_times_noise_var
 
 	# Prediction/test locations:
 	Npred = 100
