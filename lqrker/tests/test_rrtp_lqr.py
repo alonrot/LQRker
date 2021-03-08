@@ -50,7 +50,7 @@ if __name__ == "__main__":
 	dim = 1
 	Nfeat = 200
 	sigma_n = 0.5 # The cholesky decomposition is sensitive to this number. If too small, it fails
-	nu = 2.5
+	nu = 2.1
 	rrtp_lqr = RRTPLQRfeatures(dim=dim,
 									Nfeat=Nfeat,
 									sigma_n=sigma_n,
@@ -82,6 +82,8 @@ if __name__ == "__main__":
 	mean_pred, cov_pred = rrtp_lqr.get_predictive_moments(xpred)
 	std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
 
+	entropy_pred = rrtp_lqr.get_predictive_entropy(cov_pred)
+
 	# Regression with gpflow:
 	# pdb.set_trace()
 	ker = gpflow.kernels.Matern52()
@@ -94,7 +96,7 @@ if __name__ == "__main__":
 	xxpred = tf.cast(xpred,dtype=tf.float64)
 	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 	opt = gpflow.optimizers.Scipy()
-	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=100))
+	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=300))
 	gpflow.utilities.print_summary(mod)
 
 	# pdb.set_trace()
@@ -106,7 +108,7 @@ if __name__ == "__main__":
 
 		# xpred = tf.convert_to_tensor(tf.experimental.numpy.log10(xpred))
 
-		hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(14,10),sharex=True)
+		hdl_fig, hdl_splots = plt.subplots(4,1,figsize=(14,10),sharex=True)
 		hdl_fig.suptitle("Reduced-rank Student-t process")
 		hdl_splots[0].plot(xpred,mean_pred)
 		fpred_quan_plus = mean_pred + std_pred
@@ -115,41 +117,39 @@ if __name__ == "__main__":
 			alpha=.2, fc="blue", ec='None')
 		hdl_splots[0].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
 		hdl_splots[0].set_xlim([xpred[0,0],xpred[-1,0]])
-
-		# Plot true cost:
 		hdl_splots[0].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
+		hdl_splots[1].plot(xpred,entropy_pred)
 
-		hdl_splots[1].plot(xpred,mean_pred_gpflow)
+
+		hdl_splots[2].plot(xpred,mean_pred_gpflow)
 		std_pred_gpflow = tf.sqrt(var_pred_gpflow)
 		fpred_quan_plus = mean_pred_gpflow + std_pred_gpflow
 		fpred_quan_minus = mean_pred_gpflow - std_pred_gpflow
-		hdl_splots[1].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
+		hdl_splots[2].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
 			alpha=.2, fc="blue", ec='None')
-		hdl_splots[1].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
-		hdl_splots[1].set_xlim([xpred[0,0],xpred[-1,0]])
+		hdl_splots[2].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
+		hdl_splots[2].set_xlim([xpred[0,0],xpred[-1,0]])
+		hdl_splots[2].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
-
-		# Plot true cost:
-		hdl_splots[1].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
+		entropy_pred_gpflow = 0.5*tf.math.log(var_pred_gpflow)
+		hdl_splots[3].plot(xpred,entropy_pred_gpflow)
 
 
 		plt.show(block=True)
 
 
-
 	"""
 	TODO: 
 	1) Compare this with a standard reduced-rank GP with a Matern kernel from Sarkka.
-	2) Plot the true cost (we need to sample the llinear system only once)
-	3) Compute the entropy from the student-t distribution -> see how it depends from Sigma
+	2) Compute the entropy from the student-t distribution -> see how it depends from Sigma.
 		https://math.stackexchange.com/questions/2272184/differential-entropy-of-the-multivariate-student-t-distribution
-	4) Multivariate chi-squared distribution?
-	5) HOW ABOUT learning the martix of the weights, i.e., self.Sigma_weights_inv_times_noise_var as a way
-	to adjust the hyperparameters of the model? We need to set up the class in order for the 
-	gradients to backpropagate correctly...
+	3) Multivariate chi-squared distribution?
 
-	5) What are we gonna use this for in iLQG ???
+	4) What are we gonna use this for in iLQG ???
+		5.1) Are there (Q,R) matrices naturally in iLQG or are they coming from differentiating the cost?
+
+	5) Study the benefits of the Student's-t process
 	"""
 
 

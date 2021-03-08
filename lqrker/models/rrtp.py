@@ -69,6 +69,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
+
+		TODO: It's gonna fail. Get the working chunks from self.get_MLII_loss()
 		"""
 
 		Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
@@ -200,9 +202,48 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return tf.squeeze(mean_pred), cov_pred
 
+	def get_predictive_entropy(self,cov_pred):
+		"""
+
+		See [1,2].
+		In Sec. 2.4, H_{Z_0} is formulated, and its relation with Z is given.
+		In Sec. 2.1, eq. (4), the entropy of Z ( H_{Z}) is given as a function of H_{Z_0}.
+		This coincides with "Properties of differential entropy" [3].
+		In such entropy, the only term that depends on the predictive location x* is
+		the predictive covariance.
+		Luckily, such predictive covariance also depends on the observations and on nu.
+		Therefore, using such entropy for BO would be different from using the entropy
+		of a Gaussian.
+		
+		In order to do BO, we are interested in the entropy at each location.
+		Assuming that cov_pred is the predictive covariance at a set of locations xpred,
+		we get the variance from the diagonal and compute the entropy for eaach element of the diagonal.
+
+		[1] ARELLANO‐VALLE, R.B., CONTRERAS‐REYES, J.E. and Genton, M.G., 2013.
+		Shannon Entropy and Mutual Information for Multivariate Skew‐Elliptical
+		Distributions. Scandinavian Journal of Statistics, 40(1), pp.42-62.
+		[2] https://www.jstor.org/stable/23357252?seq=5#metadata_info_tab_contents
+		[3] https://en.wikipedia.org/wiki/Differential_entropy
+
+		"""
+
+		entropy = 0.5*tf.math.log( tf.linalg.diag_part(cov_pred) )
+
+		return entropy
+
+	def get_predictive_entropy_of_truncated_dist(self):
+		"""
+
+		https://link.springer.com/content/pdf/10.1016/j.jkss.2007.06.001.pdf
+		"""
+
+		pass
+
+
 	def call(self, inputs):
 		# y = tf.matmul(inputs, self.w) + self.b
 		# return tf.math.cos(y)
+		print("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
 		pass
 
 
