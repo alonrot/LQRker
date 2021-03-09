@@ -37,6 +37,19 @@ class LossStudentT(LossBase):
 		dist_studentT = tfp.distributions.StudentT(df=self.nu,loc=self.mean_pred,scale=tf.sqrt(self.var_pred))
 		return tf.reduce_mean(-dist_studentT.log_prob(cost_vals))
 
+class LossGaussian(LossBase):
+
+	def __init__(self,mean_pred,var_pred):
+		super().__init__(mean_pred,var_pred)
+
+	def MSLL(self,cost_vals):
+		"""
+		Mean standardized log loss (MSLL)
+		"""
+
+		dist_normal = tfp.distributions.Normal(loc=self.mean_pred,scale=tf.sqrt(self.var_pred))
+		return tf.reduce_mean(-dist_normal.log_prob(cost_vals))
+
 
 class LossKLDiv():
 	def __init__(self,Sigma_noise):

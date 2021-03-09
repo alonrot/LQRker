@@ -7,7 +7,7 @@ from lqrker.models.rrtp import RRTPLQRfeatures
 import numpy as np
 from lqrker.solve_lqr import GenerateLQRData
 from lqrker.objectives.lqr_cost_student import LQRCostStudent
-from lqrker.losses import LossStudentT
+from lqrker.losses import LossStudentT, LossGaussian
 
 import gpflow
 
@@ -70,16 +70,16 @@ if __name__ == "__main__":
 	f_cost = lqr_cost_student.evaluate(xpred,add_noise=False)
 
 	# Validate:
-	loss_studentT_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),nu=nu)
-	loss_studentT_gpflow = LossStudentT(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow,nu=nu)
+	loss_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),nu=nu)
+	loss_gpflow = LossGaussian(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow)
 	
-	smse_rrtp = loss_studentT_rrtp.SMSE(f_cost)
-	smse_gp = loss_studentT_gpflow.SMSE(f_cost)
+	smse_rrtp = loss_rrtp.SMSE(f_cost)
+	smse_gp = loss_gpflow.SMSE(f_cost)
 	print("smse_rrtp:",smse_rrtp)
 	print("smse_gp:",smse_gp)
 
-	msll_rrtp = loss_studentT_rrtp.MSLL(f_cost)
-	msll_gp = loss_studentT_gpflow.MSLL(f_cost)
+	msll_rrtp = loss_rrtp.MSLL(f_cost)
+	msll_gp = loss_gpflow.MSLL(f_cost)
 	print("msll_rrtp:",msll_rrtp)
 	print("msll_gp:",msll_gp)
 
