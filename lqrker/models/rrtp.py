@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 from lqrker.solve_lqr import GenerateLQRData
+import tensorflow_probability as tfp
 
 class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	"""
@@ -69,8 +70,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
+		TODO: Remove this method and place it in rrgp.py
 
-		TODO: It's gonna fail. Get the working chunks from self.get_MLII_loss()
 		"""
 
 		Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
@@ -80,16 +81,20 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		data_fit = -0.5*tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
 
-		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.linalg.logdet(Lchol)
+		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.reduce_sum( tf.math.log( tf.linalg.diag_part(Lchol) ) )
 
 		return -data_fit - model_complexity
 
 	def get_MLII_loss(self):
 		"""
 
-		Compute the log evidence for a multivariate Student-t distribution
-		The terms that do not depend on the hyperprameters have not been included
+		Compute the negative log evidence for a multivariate Student-t distribution
+		The terms that do not depend on the hyperprameters (defined with
+		self.add_weight() in self.__init__()) have not been included
 
+		NOTE: The model complexity term that depends on the hyperparameters and data
+		is the same is in the Gaussian case, i.e., log(det(Ky)^{-0.5})
+		
 		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
 		"""
 
@@ -106,7 +111,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# A = det(Lchol) = prod(diag_part(Lchol))
 		# log(A) = sum(log(diag_part(Lchol)))
 		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.reduce_sum( tf.math.log( tf.linalg.diag_part(Lchol) ) )
-		# NOTE: The model complexity term that depends on the hyperparameters and data is the same is in the Gaussian case, i.e., log(det(Ky)^{-0.5})
 
 		return -data_fit - model_complexity
 
@@ -230,6 +234,46 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		entropy = 0.5*tf.math.log( tf.linalg.diag_part(cov_pred) )
 
 		return entropy
+
+	def sample_mvt0(self,Npred,Nsamples):
+		"""
+		Sample a path from MVT(nu,0,I)
+		Using: (i) uniform sphere, (ii) inverse gamma, and (iii) Chi-squared
+
+		return: [Npred,Nsamples]
+
+		[1] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes
+		as alternatives to Gaussian processes. In Artificial intelligence and
+		statistics (pp. 877-885). PMLR.
+		"""
+
+		# Sample from unit sphere:
+		dist_sphe = tfp.distributions.SphericalUniform(dimension=Npred)
+		sample_sphe = dist_sphe.sample(sample_shape=(Nsamples,))
+
+		# Sample from inverse Gamma:
+		alpha = 0.5*self.nu
+		beta = 0.5
+		dist_ig = tfp.distributions.InverseGamma(concentration=alpha,scale=beta)
+		sample_ig = dist_ig.sample(sample_shape=(Nsamples,1))
+
+		# Sample from chi-squared:
+		dist_chi2 = tfp.distributions.Chi2(df=Npred)
+		sample_chi2 = dist_chi2.sample(sample_shape=(Nsamples,1))
+
+		# Sample from MVT(nu,0,I):
+		sample_mvt0 = tf.math.sqrt((self.nu-2) * sample_chi2 * sample_ig) * sample_sphe
+
+		return tf.transpose(sample_mvt0) # [Npred,Nsamples]
+
+	def sample_path(self,mean_pred,cov_pred,Nsamples):
+
+		Npred = cov_pred.shape[0]
+		Lchol_cov_pred = tf.linalg.cholesky(cov_pred + 1e-6*tf.eye(cov_pred.shape[0]))
+		aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ self.sample_mvt0(Npred,Nsamples)
+		# aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ tf.random.normal(shape=(cov_pred.shape[0],1), mean=0.0, stddev=1.0)
+
+		return aux # [Npred,Nsamples]
 
 	def get_predictive_entropy_of_truncated_dist(self):
 		"""

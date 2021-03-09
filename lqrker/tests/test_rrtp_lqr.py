@@ -72,7 +72,7 @@ if __name__ == "__main__":
 	rrtp_lqr.train_model()
 
 	# Prediction/test locations:
-	Npred = 100
+	Npred = 150
 	if dim == 1:
 		xpred = 10**tf.reshape(tf.linspace(-Xlim,Xlim,Npred),(-1,1))
 	else:
@@ -81,6 +81,9 @@ if __name__ == "__main__":
 	# Compute predictive moments:
 	mean_pred, cov_pred = rrtp_lqr.get_predictive_moments(xpred)
 	std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
+
+	# Sample paths:
+	# sample_paths = rrtp_lqr.sample_path(mean_pred=mean_pred,cov_pred=cov_pred,Nsamples=2)
 
 	entropy_pred = rrtp_lqr.get_predictive_entropy(cov_pred)
 
@@ -119,6 +122,8 @@ if __name__ == "__main__":
 		hdl_splots[0].set_xlim([xpred[0,0],xpred[-1,0]])
 		hdl_splots[0].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
+		# hdl_splots[0].plot(xpred,sample_paths,linestyle="-",marker=None,color="red")
+
 		hdl_splots[1].plot(xpred,entropy_pred)
 
 
@@ -150,6 +155,16 @@ if __name__ == "__main__":
 		5.1) Are there (Q,R) matrices naturally in iLQG or are they coming from differentiating the cost?
 
 	5) Study the benefits of the Student's-t process
+
+	6) Maybe stop here and read the papers from Deisenroth
+	7) For the iLQR thing:
+		7.1) Define features mapping: FROM parameters of terminal cost TO a set of
+		cost-to-go values, each one depending on a different nonlinear model,
+		obtained by sampling a different set of "simulator" parameters
+		7.2) Use such feature to do BO with log(cost) and RRTP
+		7.3) If the features are too expensive to calculate, they can be
+		pre-calculated in a meta-learning fashion...
+
 	"""
 
 
