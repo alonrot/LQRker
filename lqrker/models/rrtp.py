@@ -280,17 +280,32 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return aux # [Npred,Nsamples]
 
-	def smse(self,mean_pred,cov_pred,cost_vals):
+	def smse(self,mean_pred,var_pred,cost_vals):
 		"""
 
 		Standarized mean squared error (SMSE)
 		"""
 
-		var_pred = tf.linalg.diag_part(cov_pred)
+		mean_pred = tf.cast(tf.squeeze(mean_pred),dtype=tf.float32)
+		var_pred = tf.cast(tf.squeeze(var_pred),dtype=tf.float32)
+		cost_vals = tf.cast(tf.squeeze(cost_vals),dtype=tf.float32)
 
 		return tf.reduce_mean( (mean_pred-cost_vals)**2/var_pred )
 
 
+	def msll(self,mean_pred,var_pred,cost_vals):
+		"""
+
+		Mean standardized log loss (MSLL)
+		"""
+
+		mean_pred = tf.cast(tf.squeeze(mean_pred),dtype=tf.float32)
+		var_pred = tf.cast(tf.squeeze(var_pred),dtype=tf.float32)
+		cost_vals = tf.cast(tf.squeeze(cost_vals),dtype=tf.float32)
+
+		dist_studentT = tfp.distributions.StudentT(df=self.nu,loc=mean_pred,scale=tf.sqrt(var_pred))
+
+		return tf.reduce_mean(-dist_studentT.log_prob(cost_vals))
 
 
 	def get_predictive_entropy_of_truncated_dist(self):

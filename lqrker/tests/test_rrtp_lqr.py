@@ -7,6 +7,7 @@ from lqrker.models.rrtp import RRTPLQRfeatures
 import numpy as np
 from lqrker.solve_lqr import GenerateLQRData
 from lqrker.objectives.lqr_cost_student import LQRCostStudent
+from lqrker.losses import LossStudentT
 
 import gpflow
 
@@ -35,7 +36,7 @@ if __name__ == "__main__":
 	rrtp_lqr.train_model()
 
 	# Prediction/test locations:
-	Npred = 150
+	Npred = 200
 	if dim == 1:
 		xpred = 10**tf.reshape(tf.linspace(-Xlim,Xlim,Npred),(-1,1))
 	else:
@@ -65,11 +66,23 @@ if __name__ == "__main__":
 	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=300))
 	gpflow.utilities.print_summary(mod)
 
-	# pdb.set_trace()
-
 	# Calculate true cost:
-	# f_cost,_,_ = cost(xpred,0.0,A_samples,B_samples)
 	f_cost = lqr_cost_student.evaluate(xpred,add_noise=False)
+
+	# Validate:
+	loss_studentT_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),nu=nu)
+	loss_studentT_gpflow = LossStudentT(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow,nu=nu)
+	
+	smse_rrtp = loss_studentT_rrtp.SMSE(f_cost)
+	smse_gp = loss_studentT_gpflow.SMSE(f_cost)
+	print("smse_rrtp:",smse_rrtp)
+	print("smse_gp:",smse_gp)
+
+	msll_rrtp = loss_studentT_rrtp.MSLL(f_cost)
+	msll_gp = loss_studentT_gpflow.MSLL(f_cost)
+	print("msll_rrtp:",msll_rrtp)
+	print("msll_gp:",msll_gp)
+
 
 	if dim == 1:
 
