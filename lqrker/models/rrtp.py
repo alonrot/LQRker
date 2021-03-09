@@ -173,8 +173,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		try:
 			self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular A = L.L^T
 		except:
+			print("self._update_features()")
 			pdb.set_trace()
 
+		# Prior mean:
 		self.M = tf.zeros((self.X.shape[0],1))
 
 	@abstractmethod

@@ -9,6 +9,11 @@ from lqrker.solve_lqr import GenerateLQRData
 import time
 
 class LQRCostStudent(ObjectiveCostBase):
+	"""
+
+	TODO: Have another LQR base class that this one inherits from,
+	and leave here only the Student's-t related things (just the noise)
+	"""
 
 	def __init__(self,dim_in,sigma_n,nu,cfg,Nsys=1):
 		super().__init__(dim_in,sigma_n)
@@ -64,6 +69,8 @@ class LQRCostStudent(ObjectiveCostBase):
 				cost_values_all[ii,jj] = self.lqr_data.solve_lqr.forward_simulation(self.A_samples[jj,:,:], self.B_samples[jj,:,:], Q_des, R_des)
 
 			time_elapsed[ii] = time.time() - start
+
+		pdb.set_trace()
 
 		print("{0:f} [sec] on average per point with {1:d} features".format(np.mean(time_elapsed),self.Nsys))
 		print("{0:f} [sec] in total with {1:d} features".format(np.sum(time_elapsed),self.Nsys))

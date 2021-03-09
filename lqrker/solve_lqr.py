@@ -68,6 +68,7 @@ class SolveLQR:
 		# pdb.set_trace()
 		# Plib,_,_ = control.dare(A_tilde, np.zeros((2,2)), Q_new, R_new)
 
+		pdb.set_trace()
 
 		J = np.trace(np.matmul(P,self.Sigma0)) + np.matmul(self.mu0.T,np.matmul(P,self.mu0))
 		assert J.shape == (1,1)
@@ -105,12 +106,12 @@ class GenerateLQRData():
 
 		M = np.zeros((self.dim_state,self.dim_state))
 		V = np.eye(self.dim_state)
-		U = 2.0*np.eye(self.dim_state)
+		U = 0.5*np.eye(self.dim_state)
 		A_samples = self._sample_matrix_normal_distribution(M,V,U,Nsamples)
 
 		M = np.zeros((self.dim_state,self.dim_control))
 		V = np.eye(self.dim_control)
-		U = 2.0*np.eye(self.dim_state)
+		U = 0.5*np.eye(self.dim_state)
 		B_samples = self._sample_matrix_normal_distribution(M,V,U,Nsamples)
 
 		if self.check_controllability:
