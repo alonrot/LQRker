@@ -113,6 +113,10 @@ class GenerateLQRData():
 		U = 2.0*np.eye(self.dim_state)
 		B_samples = self._sample_matrix_normal_distribution(M,V,U,Nsamples)
 
+		if self.check_controllability:
+			for ii in range(Nsamples):
+				self._check_controllability(A_samples[ii,:,:], B_samples[ii,:,:])
+
 		return A_samples, B_samples
 
 
@@ -131,9 +135,9 @@ class GenerateLQRData():
 
 		rank = np.linalg.matrix_rank(ctrb)
 
-		# assert rank == A.shape[0], "The generated system is not controllable"
-		# if rank != A.shape[0]:
-		# 	pdb.set_trace()
+		assert rank == A.shape[0], "The generated system is not controllable"
+		if rank != A.shape[0]:
+			pdb.set_trace()
 
 	def _sample_controller_design_parameters(self,Nsamples_controller):
 
@@ -180,13 +184,8 @@ class GenerateLQRData():
 			theta_pars_all[:,ii,:] = theta_pars[:,:]
 			for jj in range(self.Ncon):
 
-
 				Q_des = Q_des_samples[:,:,jj]
 				R_des = R_des_samples[:,:,jj]
-
-				# pdb.set_trace()
-				if self.check_controllability == True:
-					self._check_controllability(A_samples[ii,:,:], B_samples[ii,:,:])
 
 				cost_values_all[ii,jj] = self.solve_lqr.forward_simulation(A_samples[ii,:,:], B_samples[ii,:,:], Q_des, R_des)
 

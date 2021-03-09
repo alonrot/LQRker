@@ -4,8 +4,6 @@ import math
 import matplotlib.pyplot as plt
 from lqrker.models.rrtp import RRTPLQRfeatures
 
-import numpy as np
-from lqrker.solve_lqr import GenerateLQRData
 from lqrker.objectives.lqr_cost_student import LQRCostStudent
 from lqrker.losses import LossStudentT, LossGaussian
 

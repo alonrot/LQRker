@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 # import tensorflow.experimental.numpy as tnp # https://www.tensorflow.org/guide/tf_numpy
 
 import numpy as np
-from lqrker.solve_lqr import GenerateLQRData
+from lqrker.objectives.lqr_cost_student import LQRCostStudent
 import tensorflow_probability as tfp
 
 class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
@@ -29,7 +29,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	[2] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank
 	Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
 	"""
-	def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
+	# def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
+	def __init__(self, dim: int, cfg: dict, **kwargs):
 		"""
 		
 		dim: Dimensionality of the input space
@@ -40,13 +41,14 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		super().__init__(**kwargs)
 
 		self.dim = dim
-		self.Nfeat = Nfeat
-		assert nu > 2
-		self.nu = nu
+		assert cfg.hyperpars.nu > 2, "Requirement: nu > 2"
+		self.nu = cfg.hyperpars.nu
+		Nfeat = cfg.hyperpars.weights_features.Nfeat
+		sigma_n_init = cfg.hyperpars.sigma_n.init
 
 		# Specify weights:
 		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(sigma_n**2), trainable=True,name="log_noise_std")
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(sigma_n_init)), trainable=True,name="log_noise_std")
 
 	def add2dataset(self,xnew,ynew):
 		pass
@@ -168,7 +170,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
-		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular A = L.L^T
+		try:
+			self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular A = L.L^T
+		except:
+			pdb.set_trace()
 
 		self.M = tf.zeros((self.X.shape[0],1))
 
@@ -280,34 +285,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return aux # [Npred,Nsamples]
 
-	def smse(self,mean_pred,var_pred,cost_vals):
-		"""
-
-		Standarized mean squared error (SMSE)
-		"""
-
-		mean_pred = tf.cast(tf.squeeze(mean_pred),dtype=tf.float32)
-		var_pred = tf.cast(tf.squeeze(var_pred),dtype=tf.float32)
-		cost_vals = tf.cast(tf.squeeze(cost_vals),dtype=tf.float32)
-
-		return tf.reduce_mean( (mean_pred-cost_vals)**2/var_pred )
-
-
-	def msll(self,mean_pred,var_pred,cost_vals):
-		"""
-
-		Mean standardized log loss (MSLL)
-		"""
-
-		mean_pred = tf.cast(tf.squeeze(mean_pred),dtype=tf.float32)
-		var_pred = tf.cast(tf.squeeze(var_pred),dtype=tf.float32)
-		cost_vals = tf.cast(tf.squeeze(cost_vals),dtype=tf.float32)
-
-		dist_studentT = tfp.distributions.StudentT(df=self.nu,loc=mean_pred,scale=tf.sqrt(var_pred))
-
-		return tf.reduce_mean(-dist_studentT.log_prob(cost_vals))
-
-
 	def get_predictive_entropy_of_truncated_dist(self):
 		"""
 
@@ -326,11 +303,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 
-	def __init__(self, dim, Nfeat, sigma_n, nu):
+	def __init__(self, dim: int, cfg: dict):
 
 		assert dim <= 2
-
-		super().__init__(dim, Nfeat, sigma_n, nu)
+		super().__init__(dim,cfg)
 
 	def get_features_mat(self,X):
 		"""
@@ -353,25 +329,15 @@ class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 
 class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 
-	def __init__(self, dim, Nfeat, sigma_n, nu):
-		super().__init__(dim, Nfeat, sigma_n, nu)
+	def __init__(self, dim: int, cfg: dict):
+		super().__init__(dim,cfg)
 
-		# Parameters:
-		Q_emp = np.array([[1.0]])
-		R_emp = np.array([[0.1]])
-		dim_state = Q_emp.shape[0]
-		dim_control = R_emp.shape[1]		
-		mu0 = np.zeros((dim_state,1))
-		Sigma0 = np.eye(dim_state)
-		Nsys = Nfeat
-		Ncon = 1 # Not needed
+		# Get parameters:
+		nu = cfg.hyperpars.nu
+		Nsys = cfg.hyperpars.weights_features.Nfeat # Use as many systems as number of features
 
-		# Generate systems:
-		self.lqr_data = GenerateLQRData(Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=True)
-		self.A_samples, self.B_samples = self.lqr_data._sample_systems(Nsamples=Nfeat)
-
-		for ii in range(Nfeat):
-			self.lqr_data._check_controllability(self.A_samples[ii,:,:], self.B_samples[ii,:,:])
+		self.lqr_cost_student = LQRCostStudent(	dim_in=dim,sigma_n=0.0,nu=nu,\
+												cfg=cfg,Nsys=Nsys)
 
 	def get_features_mat(self,X):
 		"""
@@ -379,25 +345,8 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 		return: PhiX: [Npoints, Nfeat]
 		"""
 
-		assert self.dim == 1
-
-		Npoints = X.shape[0]
-		cost_values_all = np.zeros((Npoints,self.Nfeat))
-		for ii in range(Npoints):
-
-			Q_des = tf.expand_dims(X[ii,:],axis=1)
-			R_des = np.array([[0.1]])
-			
-			for jj in range(self.Nfeat):
-
-				cost_values_all[ii,jj] = self.lqr_data.solve_lqr.forward_simulation(self.A_samples[jj,:,:], self.B_samples[jj,:,:], Q_des, R_des)
-
-
-		return tf.convert_to_tensor(cost_values_all,dtype=tf.float32) # [Npoints, Nfeat]
-
-
-
-
+		cost_values_all = self.lqr_cost_student.evaluate(X,add_noise=False)
+		return cost_values_all
 
 
 
