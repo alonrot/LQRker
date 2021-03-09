@@ -6,44 +6,9 @@ from lqrker.models.rrtp import RRTPLQRfeatures
 
 import numpy as np
 from lqrker.solve_lqr import GenerateLQRData
+from lqrker.objectives.lqr_cost_student import LQRCostStudent
 
 import gpflow
-
-def cost(X,sigma_n,A_samples=None,B_samples=None):
-
-	assert X.shape[1] == 1, "Cost tailored for 1-dim, for now"
-
-	# Parameters:
-	Q_emp = np.array([[1.0]])
-	R_emp = np.array([[0.1]])
-	dim_state = Q_emp.shape[0]
-	dim_control = R_emp.shape[1]		
-	mu0 = np.zeros((dim_state,1))
-	Sigma0 = np.eye(dim_state)
-	Nsys = 1 # We use only one system (the real one)
-	Ncon = 1 # Irrelevant
-
-	# Generate systems:
-	lqr_data = GenerateLQRData(Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=True)
-	if A_samples is None and B_samples is None:
-		A_samples, B_samples = lqr_data._sample_systems(Nsamples=Nsys)
-
-	Npoints = X.shape[0]
-	cost_values_all = np.zeros(Npoints)
-	for ii in range(Npoints):
-
-		Q_des = tf.expand_dims(X[ii,:],axis=1)
-		R_des = np.array([[0.1]])
-		
-		cost_values_all[ii] = lqr_data.solve_lqr.forward_simulation(A_samples[0,:,:], B_samples[0,:,:], Q_des, R_des)
-
-
-	cost_values_all += tf.random.normal(shape=(X.shape[0],), mean=0.0, stddev=sigma_n)
-
-	# pdb.set_trace()
-
-	return tf.convert_to_tensor(cost_values_all,dtype=tf.float32), A_samples, B_samples # [Npoints, Nfeat], __, __
-
 
 if __name__ == "__main__":
 	
@@ -57,18 +22,16 @@ if __name__ == "__main__":
 									nu=nu)
 	Xlim = 2.0
 
-	# Evaluate:
+	# Define cost objective:
+	lqr_cost_student = LQRCostStudent(dim_in=dim,sigma_n=0.05*sigma_n,nu=nu)
+
+	# Generate training data:
 	Nevals = 15
 	X = 10**tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
-	Yex, A_samples, B_samples = cost(X,0.05*sigma_n)
+	Y = lqr_cost_student.evaluate(X)
 
-	# # pdb.set_trace()
-	# Y = Yex + tf.constant([5.0]+[0.0]*(Yex.shape[0]-1))
-	Y = Yex
-
+	# Throw data into model and optimize its hyperparameters:
 	rrtp_lqr.update_model(X,Y)
-
-	# Implement here a model optimization step, by optimizing self.Sigma_weights_inv_times_noise_var
 	rrtp_lqr.train_model()
 
 	# Prediction/test locations:
@@ -105,7 +68,8 @@ if __name__ == "__main__":
 	# pdb.set_trace()
 
 	# Calculate true cost:
-	f_cost,_,_ = cost(xpred,0.0,A_samples,B_samples)
+	# f_cost,_,_ = cost(xpred,0.0,A_samples,B_samples)
+	f_cost = lqr_cost_student.evaluate(xpred,add_noise=False)
 
 	if dim == 1:
 

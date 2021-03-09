@@ -82,6 +82,8 @@ class GenerateLQRData():
 	this class generates forward simulations of the sampled systems (A_j,B_j) with 
 	controller designs theta_j. For each forward simulation, we compute the
 	resulting quadratic cost, according to the empirical weights (Q_emp,R_emp)
+
+	The class assumes quadratic empirical cost, defined by (Q_emp,R_emp)
 	"""
 
 	def __init__(self,Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=True):

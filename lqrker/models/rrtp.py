@@ -267,6 +267,11 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		return tf.transpose(sample_mvt0) # [Npred,Nsamples]
 
 	def sample_path(self,mean_pred,cov_pred,Nsamples):
+		"""
+
+		Sample a path from the posterior MTV as:
+		return: mean + Lchol @ MVT(nu,0,I) # [Npred, Nsamples]
+		"""
 
 		Npred = cov_pred.shape[0]
 		Lchol_cov_pred = tf.linalg.cholesky(cov_pred + 1e-6*tf.eye(cov_pred.shape[0]))
@@ -274,6 +279,19 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ tf.random.normal(shape=(cov_pred.shape[0],1), mean=0.0, stddev=1.0)
 
 		return aux # [Npred,Nsamples]
+
+	def smse(self,mean_pred,cov_pred,cost_vals):
+		"""
+
+		Standarized mean squared error (SMSE)
+		"""
+
+		var_pred = tf.linalg.diag_part(cov_pred)
+
+		return tf.reduce_mean( (mean_pred-cost_vals)**2/var_pred )
+
+
+
 
 	def get_predictive_entropy_of_truncated_dist(self):
 		"""
