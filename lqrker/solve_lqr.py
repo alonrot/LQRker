@@ -32,6 +32,9 @@ class SolveLQR:
 		self.mu0 = mu0
 		self.Sigma0 = Sigma0
 
+		# Debug:
+		self.DBG_P_trace_list = []
+
 
 	def _get_controller(self, A, B, Q_des, R_des):
 		P, eig, K = control.dare(A, B, Q_des, R_des)
@@ -48,6 +51,11 @@ class SolveLQR:
 		TODO: consider the LQG case
 		"""
 
+		# Approximate discretization (just in case):
+		# DeltaT = 0.01
+		# A = A*DeltaT + np.eye(A.shape[0])
+		# B = B*DeltaT
+
 		K = self._get_controller(A, B, Q_des, R_des)
 
 		A_tilde = A + np.matmul(B,-K) # Flip sign of the controller, as we assume u = Kx
@@ -56,24 +64,96 @@ class SolveLQR:
 
 		A_tilde_inv = np.linalg.inv(A_tilde)
 		Q_tilde = self.Q_emp + np.matmul(K.T,np.matmul(self.R_emp,K))
+		# Q_tilde_des = Q_des + np.matmul(K.T,np.matmul(R_des,K))
+		# print("np.linalg.eigvals(Q_tilde_des):",np.linalg.eigvals(Q_tilde_des))
+		# print("np.linalg.eigvals(Q_tilde):",np.linalg.eigvals(Q_tilde))
+		# print("np.absolute(eig):",np.absolute(eig))
 
-		A_syl = A_tilde.T
-		B_syl = -A_tilde_inv
-		Q_syl = -np.matmul(Q_tilde,A_tilde_inv)
+		# Too large numbers in large dimensions:
+		A_syl = -A_tilde.T
+		B_syl = A_tilde_inv
+		Q_syl = np.matmul(Q_tilde,A_tilde_inv)
 
-		P = la.solve_sylvester(A_syl,B_syl,Q_syl)
+		# # Doesn't work: Gives a negative trace...
+		# A_syl = A_tilde.T
+		# B_syl = A_tilde
+		# Q_syl = -Q_tilde
 
-		# Q_new = Q_tilde
-		# R_new = np.zeros((2,2))
-		# pdb.set_trace()
-		# Plib,_,_ = control.dare(A_tilde, np.zeros((2,2)), Q_new, R_new)
+		P = la.solve_sylvester(A_syl,B_syl,Q_syl) # A_syl*P + P*B_syl = Q_syl
 
-		pdb.set_trace()
+		# P = P / 10**(0.15*(self.Q_emp.shape[0] + self.R_emp.shape[0]))
 
 		J = np.trace(np.matmul(P,self.Sigma0)) + np.matmul(self.mu0.T,np.matmul(P,self.mu0))
 		assert J.shape == (1,1)
+
+		self.DBG_P_trace_list.append(np.trace(np.matmul(P,self.Sigma0)))
 		
 		return J[0,0]
+
+		# # # Check:
+		# # check1 = A_syl @ P + P @ B_syl
+
+		# # P = la.solve_discrete_are(A,B,Q,R)
+
+		# # Q_new = Q_tilde
+		# # R_new = np.zeros((2,2))
+		# # pdb.set_trace()
+		# # Plib,_,_ = control.dare(A_tilde, np.zeros((2,2)), Q_new, R_new)
+
+		# print("A**100:\n",np.linalg.matrix_power(A_tilde,100)[0:3,0:3])
+		
+		# Nrep = 100
+		# Hor = 1000
+		# Jcost_vec = np.zeros(Nrep)
+		# for ii in range(Nrep):
+		# 	x0 = np.random.randn(A.shape[0],1)
+		# 	xx = x0
+		# 	for jj in range(Hor):
+		# 		Jcost_vec[ii] += np.matmul(xx.T,np.matmul(Q_tilde,xx))
+		# 		xx = np.matmul(A_tilde,xx)
+		# 		# if jj == Hor//10:
+		# 		# 	print("Jcost_vec[ii]:",Jcost_vec[ii])
+
+
+		# Jcost = np.mean(Jcost_vec/Hor)
+
+		# print("Jcost:",Jcost)
+		# print("trace(P):",np.trace(P))
+
+		# # # Compute P (not correct)
+		# # P = np.zeros(A.shape)
+		# # Hor_red = 10 # The number of terms inside the sum grows exponentially. We end up with 2**Hor_red terms
+		# # P[:,:] = Q_tilde[:,:]
+		# # for _ in range(Hor):
+		# # 	# pdb.set_trace()
+		# # 	P[:,:] = P + np.matmul(A_tilde.T,np.matmul(P,A_tilde))
+
+		# # Jnew = np.trace(np.matmul(P,self.Sigma0)) + np.matmul(self.mu0.T,np.matmul(P,self.mu0))
+
+		# # print("Jnew:",Jnew)
+
+		# P = Q_tilde
+		# Hor_red = 1000 # The number of terms inside the sum grows exponentially. We end up with 2**Hor_red terms
+		# for ii in range(Hor_red):
+			
+		# 	A_tilde_pow = np.linalg.matrix_power(A_tilde,ii+1)
+		# 	P += np.matmul(A_tilde_pow.T,np.matmul(Q_tilde,A_tilde_pow))
+		# 	# if ii == Hor_red // 1000 or ii == Hor_red // 100 or ii == Hor_red // 10:
+		# 	# 	print("trace(P):",np.trace(P))
+		# 	# if ii == Hor_red-10:
+		# 	# 	pdb.set_trace()
+
+		# Jnew2 = np.trace(np.matmul(P,self.Sigma0)) + np.matmul(self.mu0.T,np.matmul(P,self.mu0))
+
+		# print("Jnew2:",Jnew2/Hor_red)
+
+		# pdb.set_trace()
+
+
+		# J = np.trace(np.matmul(P,self.Sigma0)) + np.matmul(self.mu0.T,np.matmul(P,self.mu0))
+		# assert J.shape == (1,1)
+		
+		# return J[0,0]
 		
 class GenerateLQRData():
 	"""
