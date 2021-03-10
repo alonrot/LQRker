@@ -1,0 +1,54 @@
+# # Configuration file for benchmark experiments
+# # ============================================
+
+which_objective: "LQRCostStudent"
+
+## Reduced-Rank Student's-t process
+RRTPLQRfeatures:
+  hyperpars:
+    nu: 2.1 # Requirement: nu > 2 [fixed]
+    sigma_n:
+      init: 1.0 # Initial value for standard deviation of evaluation noise
+    weights_features:
+      Nfeat: 10 # Number of features (i.e., number of linear models to sample)
+      init: "ones" # Initial value for the elements of the diagonal of the diagonal matrix that defines the weights covariance
+  empirical_weights:
+    Q_emp: np.eye(8)
+    R_emp: np.eye(2)
+  initial_state_distribution:
+    mu0: "zeros" # {zeros,random}
+    Sigma0: "identity"
+  check_controllability: True
+  learning:
+    learning_rate: 0.001
+    epochs: 300
+
+dataset:
+  # Input dimensionality:
+  dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0] + ${RRTPLQRfeatures.empirical_weights.R_emp}.shape[0]"
+  Nevals: 10
+  xlims: "[-4,4]" # Limits of hypercube
+  noise_eval_std: 0.1
+  nu: "${RRTPLQRfeatures.hyperpars.nu}"
+
+
+
+
+# ## Standard GP parameters
+# gpmodel:
+#   hyperpars:
+#     lenthscales: # The same hyperprior is assume for all lengthscales
+#       # prior: 'beta(a=2.0, b=6.0)' # **Works**
+#       prior: 'beta(a=1.5, b=15.0)' # Debug (shorter range for ls)
+#     outputscale: 
+#       prior: 'gamma(a=2.0, scale=1.0)'
+#     noise_std: 
+#       value: 0.01 # Homoscedastic noise, standard deviation
+#     optimization:
+#       Nrestarts: 8
+#       # Nrestarts: 1
+#       # algo_name: 'LN_COBYLA' # Internally, the name is appended to 'nlopt.', e.g., 'nlopt.LN_COBYLA'. See https://nlopt.readthedocs.io/en/latest/NLopt_Python_Reference/
+#       algo_name: 'LN_BOBYQA'
+#       Nmax_evals: 200 # Max number of function evaluations
+#   discard_too_close_points: False
+
