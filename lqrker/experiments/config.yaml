@@ -34,6 +34,8 @@ RRTPLQRfeatures:
   learning:
     learning_rate: 0.001
     epochs: 2000
+    stopping_condition:
+      loss_val: -20.0
 
 dataset:
   # Input dimensionality:
@@ -68,4 +70,5 @@ GaussianProcess:
 validation:
   perc_training: 20
   Ncut: None
+  Nfuns: 2
 

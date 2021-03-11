@@ -49,7 +49,7 @@ def split_dataset(X,Y,perc_training,Ncut=None):
 @hydra.main(config_path=".",config_name="config.yaml")
 def validate_rrtp(cfg: dict) -> None:
 
-	Nfuns = 10
+	Nfuns = cfg.validation.Nfuns
 	smse_rrtp_vec = np.zeros(Nfuns)
 	msll_rrtp_vec = np.zeros(Nfuns)
 	for ii  in range(Nfuns):
@@ -81,16 +81,25 @@ def validate_rrtp(cfg: dict) -> None:
 		smse_rrtp_vec[ii] = float(loss_rrtp.SMSE(Ytest))
 		msll_rrtp_vec[ii] = float(loss_rrtp.MSLL(Ytest))
 
-	print("smse_rrtp: {0:f} ({1:f})".format(np.mean(smse_rrtp_vec),np.std(smse_rrtp_vec)))
-	print("msll_rrtp: {0:f} ({1:f})".format(np.mean(msll_rrtp_vec),np.std(msll_rrtp_vec)))
+	mean_smse_rrtp = np.mean(smse_rrtp_vec)
+	std_smse_rrtp = np.std(smse_rrtp_vec)	
+	mean_msll_rrtp = np.mean(msll_rrtp_vec)
+	std_msll_rrtp = np.std(msll_rrtp_vec)
+
+	print("smse_rrtp: {0:f} ({1:f})".format(mean_smse_rrtp,std_smse_rrtp))
+	print("msll_rrtp: {0:f} ({1:f})".format(mean_msll_rrtp,std_msll_rrtp))
+
+
 
 @hydra.main(config_path=".",config_name="config.yaml")
 def validate_gpflow(cfg: dict) -> None:
 
-	Nfuns = 10
+	Nfuns = cfg.validation.Nfuns
 	smse_gp_vec = np.zeros(Nfuns)
 	msll_gp_vec = np.zeros(Nfuns)
 	for ii  in range(Nfuns):
+
+		print("Validating model with function {0:d} / {1:d}".format(ii+1,Nfuns))
 
 		X,Y = load_dataset(num_fun=ii)
 
@@ -122,16 +131,19 @@ def validate_gpflow(cfg: dict) -> None:
 		smse_gp_vec[ii] = float(loss_gpflow.SMSE(Ytest))
 		msll_gp_vec[ii] = float(loss_gpflow.MSLL(Ytest))
 
-	print("smse_gp: {0:f} ({1:f})".format(np.mean(smse_gp_vec),np.std(smse_gp_vec)))
-	print("msll_gp: {0:f} ({1:f})".format(np.mean(msll_gp_vec),np.std(msll_gp_vec)))
+	mean_smse_gp = np.mean(smse_gp_vec)
+	std_smse_gp = np.std(smse_gp_vec)
+	mean_msll_gp = np.mean(msll_gp_vec)
+	std_msll_gp = np.std(msll_gp_vec)
+
+	print("smse_gp: {0:f} ({1:f})".format(mean_smse_gp,std_smse_gp))
+	print("msll_gp: {0:f} ({1:f})".format(mean_msll_gp,std_msll_gp))
 
 
 if __name__ == "__main__":
 
 	validate_rrtp()
 	validate_gpflow()
-
-
 
 
 

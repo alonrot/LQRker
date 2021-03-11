@@ -55,6 +55,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# Learning parameters:
 		self.learning_rate = cfg.learning.learning_rate
 		self.epochs = cfg.learning.epochs
+		self.stop_loss_val = cfg.learning.stopping_condition.loss_val
 
 
 	def add2dataset(self,xnew,ynew):
@@ -109,16 +110,22 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		# print("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(self.PhiX.shape[1],self.PhiX.shape[1]))
+
+		Kmat = tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var()
+
 		try:
-			Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
+			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
 		except Exception as inst:
 			# print("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			print("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
-
-			min_eigval = self.fix_eigvals(self.PhiX)
+			# print("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
 
 			# print("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
-			Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() + min_eigval*tf.eye(self.PhiX.shape[1]) ) # Lower triangular A = L.L^T
+			# min_eigval_posi = self.fix_eigvals(self.PhiX)
+			Kmat = self.fix_eigvals(Kmat)
+			# return 10*min_eigval_posi
+			# return 10.0*tf.reduce_max(self.PhiX)
+			# Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() + min_eigval*tf.eye(self.PhiX.shape[1]) ) # Lower triangular A = L.L^T
+			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
 
 			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
 			# print("@get_MLII_loss(): Returning Inf....")
@@ -175,13 +182,13 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 			# Stopping condition:
 			if not tf.math.is_nan(loss_value):
-				if loss_value <= -20.0:
+				if loss_value <= self.stop_loss_val:
 					done = True
 			
 			epoch += 1
 
 		if done == True:
-			print("Training finished because loss_value = {0:f}".format(float(loss_value)))
+			print("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
 
 		# print(self.trainable_weights[0][0:10])
 		# print(self.trainable_weights[1])
@@ -205,7 +212,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	def _update_features(self):
 		"""
 
-		Cache the expensive operation
+		Compute some relevant quantities that will be alter used for prediction:
+		PhiX, 
 		"""
 
 		print("Computing matrix of features PhiX ...")
@@ -213,24 +221,32 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		
 		# pdb.set_trace()
 
+		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX
+
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
 		# self.DBG_eigvals = tf.eigvals(tf.transpose(self.PhiX) @ self.PhiX)
 
-		print("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(self.PhiX.shape[1],self.PhiX.shape[1]))
+		print("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
 		try:
-			self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var ) # Lower triangular A = L.L^T
+			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
 		except Exception as inst:
 			
 			print("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			print("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
+			print("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) || Fixing it...")
 
-			min_eigval = self.fix_eigvals(self.PhiX)
-			self.log_diag_vals.assign(-tf.math.log(min_eigval/self.get_noise_var())*tf.ones(self.PhiX.shape[1]))
+			# Fix it by modifying the hyperparameters:
+			# Extract the most negative eigenvalue:
+			aux2 = tf.math.real(tf.eigvals(PhiXTPhiX))
+			min_eigval_posi = tf.abs(tf.reduce_min(aux2))
+			min_eigval_posi = 1.1*min_eigval_posi
+
+			# Add such eigenvalue as jitter:
+			self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
 			Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
-			print("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
-			self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
+			print("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
+			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
 			
 			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
 			# bbb = tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var + min_eigval*tf.eye(self.PhiX.shape[1])
@@ -241,13 +257,40 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# Prior mean:
 		self.M = tf.zeros((self.X.shape[0],1))
 
-	def fix_eigvals(self,PhiX):
-		aux = tf.transpose(PhiX) @ PhiX
-		aux2 = tf.math.real(tf.eigvals(aux))
-		aux2 = aux2[aux2 < 0.0]
-		min_eigval = tf.reduce_max(-aux2)*2.0
+	def fix_eigvals(self,Kmat):
+		"""
 
-		return min_eigval
+		Among the negative eigenvalues, get the 'most negative one'
+		and return it with flipped sign
+		"""
+
+		
+
+		eigvals, eigvect = tf.linalg.eigh(Kmat)
+
+		max_eigval = tf.reduce_max(tf.math.real(eigvals))
+		min_eigval = tf.reduce_min(tf.math.real(eigvals))
+
+		# Compte eps:
+		# eps must be such that the condition number of the resulting matrix is not too large
+		max_order_eigval = tf.math.ceil(tf.experimental.numpy.log10(max_eigval))
+		eps = 10**(max_order_eigval-8) # We set a maximum condition number of 8
+
+		# Fix eigenvalues:
+		eigvals_fixed = eigvals + tf.abs(min_eigval) + eps
+
+		Kmat_fixed = eigvect @ ( tf.linalg.diag(eigvals_fixed) @ tf.transpose(eigvect) )
+
+		# Kmat_fixed_sym = 0.5*(Kmat_fixed + tf.transpose(Kmat_fixed))
+
+		try:
+			tf.linalg.cholesky(Kmat_fixed)
+		except:
+			pdb.set_trace()
+
+		# pdb.set_trace()
+
+		return Kmat_fixed
 
 
 	@abstractmethod
