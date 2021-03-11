@@ -84,22 +84,25 @@ def validate_gpflow(cfg: dict) -> None:
 	X,Y = load_dataset(num_fun=0)
 
 	# Split dataset:
-	Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,perc_training=20,Ncut=100)
+	Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,
+												perc_training=cfg.validation.perc_training,
+												Ncut=cfg.validation.Ncut)
 
 	# Build model:
 	ker = gpflow.kernels.Matern52()
 	XX = tf.cast(Xtrain,dtype=tf.float64)
 	YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
 	mod = gpflow.models.GPR(data=(XX,YY), kernel=ker, mean_function=gpflow.mean_functions.Constant())
-	mod.likelihood.variance.assign(1.0)
-	mod.kernel.lengthscales.assign(1.0)
-	mod.kernel.variance.assign(10.0)
+	mod.likelihood.variance.assign(cfg.GaussianProcess.hyperpars.sigma_n.init**2)
+	mod.kernel.lengthscales.assign(cfg.GaussianProcess.hyperpars.ls.init)
+	mod.kernel.variance.assign(cfg.GaussianProcess.hyperpars.prior_var.init)
+	mod.mean_function.c.assign(tf.constant([cfg.GaussianProcess.hyperpars.mean.init]))
 
 	xxpred = tf.cast(Xtest,dtype=tf.float64)
 	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 	opt = gpflow.optimizers.Scipy()
-	maxiter = cfg.RRTPLQRfeatures.learning.epochs
-	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=10*maxiter))
+	maxiter = cfg.GaussianProcess.learning.epochs
+	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=maxiter))
 	gpflow.utilities.print_summary(mod)
 
 	# Validate:
@@ -112,7 +115,7 @@ def validate_gpflow(cfg: dict) -> None:
 
 if __name__ == "__main__":
 
-	validate_gpflow()
+	# validate_gpflow()
 	validate_rrtp()
 
 

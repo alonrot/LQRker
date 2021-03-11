@@ -49,3 +49,23 @@ dataset:
     file_name: "LQRcost_dataset"
     ext: "pickle"
     Nobj_functions: 100
+
+## Gaussian process
+GaussianProcess:
+  hyperpars:
+    ls:
+      init: 1.0
+    sigma_n:
+      init: 1.0
+    prior_var:
+      init: 10.0
+    mean:
+      init: 0.0
+  learning:
+    epochs: 20000
+
+## Model validation
+validation:
+  perc_training: 20
+  Ncut: 100
+
