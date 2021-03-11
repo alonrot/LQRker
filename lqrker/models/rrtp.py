@@ -113,12 +113,11 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
 		except Exception as inst:
 			# print("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			# print("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
+			print("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
 
 			min_eigval = self.fix_eigvals(self.PhiX)
 
 			# print("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
-
 			Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() + min_eigval*tf.eye(self.PhiX.shape[1]) ) # Lower triangular A = L.L^T
 
 			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
@@ -129,8 +128,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
 
 		# Compute data fit:
-		# term_data_fit = tf.clip_by_value(tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M)),clip_value_min=0.0,clip_value_max=float("Inf"))
-		term_data_fit = tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
+		term_data_fit = tf.clip_by_value(tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M)),clip_value_min=0.0,clip_value_max=float("Inf"))
+		# term_data_fit = tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
 
 		data_fit = -0.5*(self.nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (self.nu-2.) )
 
@@ -142,6 +141,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		loss_val = -data_fit - model_complexity
 
 		# if tf.math.is_nan(loss_val):
+		# 	pdb.set_trace()
 		# 	return tf.constant([[float("Inf")]])
 
 		return loss_val
@@ -179,6 +179,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 					done = True
 			
 			epoch += 1
+
+		if done == True:
+			print("Training finished because loss_value = {0:f}".format(float(loss_value)))
 
 		# print(self.trainable_weights[0][0:10])
 		# print(self.trainable_weights[1])
