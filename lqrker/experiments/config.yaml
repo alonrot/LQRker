@@ -38,17 +38,17 @@ RRTPLQRfeatures:
 dataset:
   # Input dimensionality:
   dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0] + ${RRTPLQRfeatures.empirical_weights.R_emp}.shape[0]"
-  Nevals: 10000
-  xlims: "[-4,4]" # Limits of hypercube
-  noise_eval_std: 0.1
+  Nevals: 100
+  xlims: "[-2,2]" # Limits of hypercube
+  noise_eval_std: 0.00
   nu: "${RRTPLQRfeatures.hyperpars.nu}"
   generate: # Generate a number of cost functions by randomly sampling the system matrices
-    use: False
+    use: True
     save: True
     path: "./"
     file_name: "LQRcost_dataset"
     ext: "pickle"
-    Nobj_functions: 100
+    Nobj_functions: 10
 
 ## Gaussian process
 GaussianProcess:
@@ -67,5 +67,5 @@ GaussianProcess:
 ## Model validation
 validation:
   perc_training: 20
-  Ncut: 100
+  Ncut: None
 

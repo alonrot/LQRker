@@ -32,7 +32,9 @@ def generate_dataset(cfg: dict):
 		Nobj_functions = cfg.dataset.generate.Nobj_functions
 		for ii in range(Nobj_functions):
 			lqr_cost_student = LQRCostStudent(dim_in=dim,sigma_n=noise_eval_std,nu=nu,cfg=cfg.RRTPLQRfeatures,Nsys=1)
-			X = 10**tf.random.uniform(shape=(Nevals,dim),minval=xlim[0],maxval=xlim[1])
+			X = xlim[0] + (xlim[1] - xlim[0])*tf.math.sobol_sample(dim=dim, num_results=Nevals, skip=2000, dtype=tf.dtypes.float32, name=None) # Samples in unit hypercube
+			X = 10**X
+			# X = 10**tf.random.uniform(shape=(Nevals,dim),minval=xlim[0],maxval=xlim[1])
 			Y = lqr_cost_student.evaluate(X,add_noise=True,verbo=True)
 
 			if cfg.dataset.generate.save:
@@ -54,7 +56,9 @@ def generate_dataset(cfg: dict):
 	else:
 
 		lqr_cost_student = LQRCostStudent(dim_in=dim,sigma_n=noise_eval_std,nu=nu,cfg=cfg.RRTPLQRfeatures,Nsys=1)
-		X = 10**tf.random.uniform(shape=(Nevals,dim),minval=xlim[0],maxval=xlim[1])
+		X = xlim[0] + (xlim[1] - xlim[0])*tf.math.sobol_sample(dim=dim, num_results=Nevals, skip=2000, dtype=tf.dtypes.float32, name=None) # Samples in unit hypercube
+		X = 10**X
+		# X = 10**tf.random.uniform(shape=(Nevals,dim),minval=xlim[0],maxval=xlim[1])
 		Y = lqr_cost_student.evaluate(X,add_noise=True,verbo=True)
 
 		return X,Y

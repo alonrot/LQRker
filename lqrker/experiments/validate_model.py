@@ -8,17 +8,16 @@ from lqrker.objectives.lqr_cost_student import LQRCostStudent
 from lqrker.losses import LossStudentT, LossGaussian
 
 import gpflow
-
 import pickle
-
 import hydra
-
 import numpy as np
 
 def load_dataset(num_fun):
 
 	# Load dataset:
-	path2file = "./../../2021-03-10/19-55-02/LQRcost_dataset_{0:d}.pickle".format(num_fun)
+	# path2file = "./../../2021-03-10/19-55-02/LQRcost_dataset_{0:d}.pickle".format(num_fun) # Random sequence xlims: "[-4,4]"; Nevals: 10000; Nobj_functions: 100
+	# path2file = "./../../2021-03-11/16-22-26/LQRcost_dataset_{0:d}.pickle".format(num_fun) # Sobol sequence xlims: "[-2,2]"; Nevals: 100; Nobj_functions: 10
+	path2file = "./../../2021-03-11/17-07-33/LQRcost_dataset_{0:d}.pickle".format(num_fun) # Same as above, no noise
 	fid = open(path2file, "rb")
 	XY_dataset = pickle.load(fid)
 	X = XY_dataset["X"]
@@ -30,7 +29,7 @@ def split_dataset(X,Y,perc_training,Ncut=None):
 
 	assert perc_training > 0 and perc_training < 100
 
-	if Ncut is not None:
+	if Ncut is not None and Ncut != "None":
 		assert Ncut <= X.shape[0]
 		X = X[0:Ncut,:]
 		Y = Y[0:Ncut]
@@ -50,73 +49,87 @@ def split_dataset(X,Y,perc_training,Ncut=None):
 @hydra.main(config_path=".",config_name="config.yaml")
 def validate_rrtp(cfg: dict) -> None:
 
-	X,Y = load_dataset(num_fun=0)
+	Nfuns = 10
+	smse_rrtp_vec = np.zeros(Nfuns)
+	msll_rrtp_vec = np.zeros(Nfuns)
+	for ii  in range(Nfuns):
 
-	dim = eval(cfg.dataset.dim)
-	assert X.shape[1] == dim
+		X,Y = load_dataset(num_fun=ii)
 
-	# Split dataset:
-	Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,perc_training=20,Ncut=100)
+		dim = eval(cfg.dataset.dim)
+		assert X.shape[1] == dim
 
-	# Model:
-	rrtp_lqr = RRTPLQRfeatures(dim=dim,cfg=cfg.RRTPLQRfeatures)
-	rrtp_lqr.update_model(Xtrain,Ytrain)
-	rrtp_lqr.train_model()
+		# Split dataset:
+		Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,
+													perc_training=cfg.validation.perc_training,
+													Ncut=cfg.validation.Ncut)
 
-	# Compute predictive moments:
-	mean_pred, cov_pred = rrtp_lqr.get_predictive_moments(Xtest)
-	std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
+		# Model:
+		rrtp_lqr = RRTPLQRfeatures(dim=dim,cfg=cfg.RRTPLQRfeatures)
+		rrtp_lqr.update_model(Xtrain,Ytrain)
+		rrtp_lqr.train_model()
+
+		# Compute predictive moments:
+		mean_pred, cov_pred = rrtp_lqr.get_predictive_moments(Xtest)
+		std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
 
 
-	# Validate:
-	loss_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),\
-							nu=cfg.RRTPLQRfeatures.hyperpars.nu)
-	
-	smse_rrtp = loss_rrtp.SMSE(Ytest)
-	print("smse_rrtp:",smse_rrtp)
+		# Validate:
+		loss_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),\
+								nu=cfg.RRTPLQRfeatures.hyperpars.nu)
+		
+		smse_rrtp_vec[ii] = float(loss_rrtp.SMSE(Ytest))
+		msll_rrtp_vec[ii] = float(loss_rrtp.MSLL(Ytest))
 
-	msll_rrtp = loss_rrtp.MSLL(Ytest)
-	print("msll_rrtp:",msll_rrtp)
+	print("smse_rrtp: {0:f} ({1:f})".format(np.mean(smse_rrtp_vec),np.std(smse_rrtp_vec)))
+	print("msll_rrtp: {0:f} ({1:f})".format(np.mean(msll_rrtp_vec),np.std(msll_rrtp_vec)))
 
 @hydra.main(config_path=".",config_name="config.yaml")
 def validate_gpflow(cfg: dict) -> None:
 
-	X,Y = load_dataset(num_fun=0)
+	Nfuns = 10
+	smse_gp_vec = np.zeros(Nfuns)
+	msll_gp_vec = np.zeros(Nfuns)
+	for ii  in range(Nfuns):
 
-	# Split dataset:
-	Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,
-												perc_training=cfg.validation.perc_training,
-												Ncut=cfg.validation.Ncut)
+		X,Y = load_dataset(num_fun=ii)
 
-	# Build model:
-	ker = gpflow.kernels.Matern52()
-	XX = tf.cast(Xtrain,dtype=tf.float64)
-	YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
-	mod = gpflow.models.GPR(data=(XX,YY), kernel=ker, mean_function=gpflow.mean_functions.Constant())
-	mod.likelihood.variance.assign(cfg.GaussianProcess.hyperpars.sigma_n.init**2)
-	mod.kernel.lengthscales.assign(cfg.GaussianProcess.hyperpars.ls.init)
-	mod.kernel.variance.assign(cfg.GaussianProcess.hyperpars.prior_var.init)
-	mod.mean_function.c.assign(tf.constant([cfg.GaussianProcess.hyperpars.mean.init]))
+		# Split dataset:
+		Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,
+													perc_training=cfg.validation.perc_training,
+													Ncut=cfg.validation.Ncut)
 
-	xxpred = tf.cast(Xtest,dtype=tf.float64)
-	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
-	opt = gpflow.optimizers.Scipy()
-	maxiter = cfg.GaussianProcess.learning.epochs
-	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=maxiter))
-	gpflow.utilities.print_summary(mod)
+		# Build model:
+		ker = gpflow.kernels.Matern52()
+		XX = tf.cast(Xtrain,dtype=tf.float64)
+		YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
+		mod = gpflow.models.GPR(data=(XX,YY), kernel=ker, mean_function=gpflow.mean_functions.Constant())
+		mod.likelihood.variance.assign(cfg.GaussianProcess.hyperpars.sigma_n.init**2)
+		mod.kernel.lengthscales.assign(cfg.GaussianProcess.hyperpars.ls.init)
+		mod.kernel.variance.assign(cfg.GaussianProcess.hyperpars.prior_var.init)
+		mod.mean_function.c.assign(tf.constant([cfg.GaussianProcess.hyperpars.mean.init]))
 
-	# Validate:
-	loss_gpflow = LossGaussian(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow)
-	
-	smse_gp = loss_gpflow.SMSE(Ytest)
-	print("smse_gp:",smse_gp)
-	msll_gp = loss_gpflow.MSLL(Ytest)
-	print("msll_gp:",msll_gp)
+		xxpred = tf.cast(Xtest,dtype=tf.float64)
+		mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
+		opt = gpflow.optimizers.Scipy()
+		maxiter = cfg.GaussianProcess.learning.epochs
+		opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=maxiter))
+		gpflow.utilities.print_summary(mod)
+
+		# Validate:
+		loss_gpflow = LossGaussian(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow)
+		
+		smse_gp_vec[ii] = float(loss_gpflow.SMSE(Ytest))
+		msll_gp_vec[ii] = float(loss_gpflow.MSLL(Ytest))
+
+	print("smse_gp: {0:f} ({1:f})".format(np.mean(smse_gp_vec),np.std(smse_gp_vec)))
+	print("msll_gp: {0:f} ({1:f})".format(np.mean(msll_gp_vec),np.std(msll_gp_vec)))
+
 
 if __name__ == "__main__":
 
-	# validate_gpflow()
 	validate_rrtp()
+	validate_gpflow()
 
 
 
