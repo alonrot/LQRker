@@ -1,74 +1,17 @@
-# hydra:
-#   job_logging:
-#     disable_existing_loggers: False
-#   run:
-#     dir: ./ # outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
-#   # output_subdir: "${which_objective}/${acqui}_results/.hydra"
-#   output_subdir: "${which_objective}/results/.hydra"
+hydra:
+  job_logging:
+    disable_existing_loggers: False
+  # run:
+    # dir: ./ # outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  # output_subdir: "${which_objective}/${acqui}_results/.hydra"
+  # output_subdir: "${which_objective}/results/.hydra"
 
-# defaults:
-#   - hydra/job_logging : disabled # Completely deactivate the hydra logging. NOTE: This solution should be documented, but it's not. See https://hydra.cc/docs/configure_hydra/logging
-#   - config: LQRfeatures
-  
-#   # - scheme: debug
-#   - scheme: normal
+defaults:
+  - hydra/job_logging : disabled # Completely deactivate the hydra logging.
+  - config: LQRfeatures
+  # - scheme: normal
+  - scheme: debug
 
-which_objective: "LQRCostStudent"
-
-## Reduced-Rank Student's-t process
-RRTPLQRfeatures:
-  hyperpars:
-    nu: 2.1 # Requirement: nu > 2 [fixed]
-    sigma_n:
-      init: 0.5 # Initial value for standard deviation of evaluation noise
-    weights_features:
-      Nfeat: 100 # Number of features (i.e., number of linear models to sample)
-      init: "ones" # Initial value for the elements of the diagonal of the diagonal matrix that defines the weights covariance
-  empirical_weights:
-    Q_emp: np.eye(8)
-    R_emp: np.eye(2)
-  initial_state_distribution:
-    mu0: "zeros" # {zeros,random}
-    Sigma0: "identity"
-  check_controllability: True
-  learning:
-    learning_rate: 0.001
-    epochs: 2000
-    stopping_condition:
-      loss_val: -20.0
-
-dataset:
-  # Input dimensionality:
-  dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0] + ${RRTPLQRfeatures.empirical_weights.R_emp}.shape[0]"
-  Nevals: 100
-  xlims: "[-2,2]" # Limits of hypercube
-  noise_eval_std: 0.00
-  nu: "${RRTPLQRfeatures.hyperpars.nu}"
-  generate: # Generate a number of cost functions by randomly sampling the system matrices
-    use: True
-    save: True
-    path: "./"
-    file_name: "LQRcost_dataset"
-    ext: "pickle"
-    Nobj_functions: 10
-
-## Gaussian process
-GaussianProcess:
-  hyperpars:
-    ls:
-      init: 1.0
-    sigma_n:
-      init: 1.0
-    prior_var:
-      init: 10.0
-    mean:
-      init: 0.0
-  learning:
-    epochs: 20000
-
-## Model validation
-validation:
-  perc_training: 20
-  Ncut: None
-  Nfuns: 2
-
+cluster:
+  which_model: "RRTP"
+  rep_nr: 0

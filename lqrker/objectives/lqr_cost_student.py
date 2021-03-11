@@ -57,7 +57,7 @@ class LQRCostStudent(ObjectiveCostBase):
 		Npoints = X.shape[0]
 		cost_values_all = np.zeros((Npoints,self.Nsys))
 		# time_elapsed = np.zeros(Npoints)
-		Nskip = 10
+		Nskip = 1000
 		for ii in range(Npoints):
 
 			if verbo and (ii+1) % Nskip == 1:

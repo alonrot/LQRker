@@ -1,0 +1,12 @@
+# @package _global_
+RRTPLQRfeatures:
+  hyperpars:
+    weights_features:
+      Nfeat: 10
+  learning:
+    epochs: 100
+
+validation:
+  perc_training: 20
+  Ncut: 100
+  Nfuns: 1

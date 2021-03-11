@@ -13,6 +13,7 @@ setup(
     keywords = "Bayesian Optimization, Gaussian process, Learning representations",
     packages=[	'lqrker',
     			'lqrker.models',
-                'lqrker.objectives'],
+                'lqrker.objectives',
+                'lqrker.utils'],
     long_description=read('README.md'),
 )

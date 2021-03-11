@@ -1,0 +1,2 @@
+# @package _global_
+foo: 0 # Needed, otherwise hydra fails
