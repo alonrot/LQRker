@@ -4,7 +4,7 @@ n_rep = $(Process) + $INT(Ninit)
 Nqueue = $(Nend) - $(Ninit)
 
 executable = /bin/bash
-arguments = cluster/launch.sh $INT(n_rep) GPFLOW
+arguments = cluster/launch.sh GPFLOW $INT(n_rep)
 error = condor_GPFLOW_$INT(n_rep).err
 output = condor_GPFLOW_$INT(n_rep).out
 log = condor_GPFLOW_$INT(n_rep).log
