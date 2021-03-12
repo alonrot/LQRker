@@ -8,6 +8,10 @@ from lqrker.solve_lqr import GenerateLQRData
 
 import time
 
+from lqrker.utils.parsing import get_logger
+logger = get_logger(__name__)
+
+
 class LQRCostStudent(ObjectiveCostBase):
 	"""
 
@@ -66,20 +70,20 @@ class LQRCostStudent(ObjectiveCostBase):
 			Q_des = tf.linalg.diag(X[ii,0:self.dim_state])
 			R_des = tf.linalg.diag(X[ii,self.dim_state::])
 
-			# print("Computing cost for point nr. {0:d} / {1:d}".format(ii+1,Npoints))
+			# logger.info("Computing cost for point nr. {0:d} / {1:d}".format(ii+1,Npoints))
 			for jj in range(self.Nsys):
 
-				# print("Computing cost for system {0:d} / {1:d}, point nr. {2:d} / {3:d}".format(jj+1,self.Nsys,ii+1,Npoints))
+				# logger.info("Computing cost for system {0:d} / {1:d}, point nr. {2:d} / {3:d}".format(jj+1,self.Nsys,ii+1,Npoints))
 				cost_values_all[ii,jj] = self.lqr_data.solve_lqr.forward_simulation(self.A_samples[jj,:,:], self.B_samples[jj,:,:], Q_des, R_des)
 
 			if verbo and (ii+1) % Nskip == 0:
 				# time_elapsed[ii] = time.time() - start
 				time_elapsed = time.time() - start
-				print("Point {0:d} / {1:d} per point with {2:d} features".format(ii+1,Npoints,self.Nsys))
-				print("Took {0:f} [sec] to compute {1:d} points with {2:d} features".format(time_elapsed,Nskip,self.Nsys))
+				logger.info("Point {0:d} / {1:d} per point with {2:d} features".format(ii+1,Npoints,self.Nsys))
+				logger.info("Took {0:f} [sec] to compute {1:d} points with {2:d} features".format(time_elapsed,Nskip,self.Nsys))
 
-		# print("{0:f} [sec] on average per point with {1:d} features".format(np.mean(time_elapsed),self.Nsys))
-		# print("{0:f} [sec] in total with {1:d} features".format(np.sum(time_elapsed),self.Nsys))
+		# logger.info("{0:f} [sec] on average per point with {1:d} features".format(np.mean(time_elapsed),self.Nsys))
+		# logger.info("{0:f} [sec] in total with {1:d} features".format(np.sum(time_elapsed),self.Nsys))
 
 		# Sample noise from independent Student's-t distributions:
 		if add_noise:

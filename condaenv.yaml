@@ -4,8 +4,9 @@ channels:
   - conda-forge
 dependencies:
   - python==3.7
+  - pip
   - pip:
-    - hydra-core==1.0.6
-    - matplotlib
     - tensorflow
+    - hydra-core==1.0.6
     - numpy
+    - matplotlib

@@ -16,6 +16,10 @@ import numpy as np
 
 import os
 
+from lqrker.utils.parsing import get_logger
+logger = get_logger(__name__)
+
+
 @hydra.main(config_path=".",config_name="config.yaml")
 def generate_dataset(cfg: dict):
 
@@ -48,7 +52,7 @@ def generate_dataset(cfg: dict):
 				fid = open(path2file, "wb")
 
 				# Place data into file:
-				print("Saving {0:s} || Dataset {1:d} / {2:d}".format(path2file,ii+1,Nobj_functions))
+				logger.info("Saving {0:s} || Dataset {1:d} / {2:d}".format(path2file,ii+1,Nobj_functions))
 				pickle.dump(XY_dataset,fid)
 
 			del X, Y, lqr_cost_student

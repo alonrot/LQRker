@@ -8,6 +8,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 from lqrker.objectives.lqr_cost_student import LQRCostStudent
 import tensorflow_probability as tfp
+from lqrker.utils.parsing import get_logger
+logger = get_logger(__name__)
 
 class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	"""
@@ -38,7 +40,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		L: Half Length of the hypercube. Each dimension has length [-L, L]
 		"""
 
-		print("Initializing ReducedRankStudentTProcessBase() class ...")
+		logger.info("Initializing ReducedRankStudentTProcessBase() class ...")
 
 		super().__init__(**kwargs)
 
@@ -109,17 +111,17 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
 		"""
 
-		# print("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(self.PhiX.shape[1],self.PhiX.shape[1]))
+		# logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(self.PhiX.shape[1],self.PhiX.shape[1]))
 
 		Kmat = tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var()
 
 		try:
 			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
 		except Exception as inst:
-			# print("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			# print("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
+			# logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
+			# logger.info("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
 
-			# print("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
+			# logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
 			# min_eigval_posi = self.fix_eigvals(self.PhiX)
 			Kmat = self.fix_eigvals(Kmat)
 			# return 10*min_eigval_posi
@@ -128,7 +130,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
 
 			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
-			# print("@get_MLII_loss(): Returning Inf....")
+			# logger.info("@get_MLII_loss(): Returning Inf....")
 			# return tf.constant([[float("Inf")]])
 
 		# Compute Ky_inv:
@@ -158,12 +160,12 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		"""
 
-		print("Training the model...")
+		logger.info("Training the model...")
 
 		optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
 
-		# print(self.trainable_weights[0][0:10])
-		# print(self.trainable_weights[1])
+		# logger.info(self.trainable_weights[0][0:10])
+		# logger.info(self.trainable_weights[1])
 
 		epoch = 0
 		done = False
@@ -178,7 +180,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			optimizer.apply_gradients(zip(grads, self.trainable_weights))
 
 			if (epoch+1) % 10 == 0:
-				print("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.epochs, float(loss_value)))
+				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.epochs, float(loss_value)))
 
 			# Stopping condition:
 			if not tf.math.is_nan(loss_value):
@@ -188,14 +190,14 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			epoch += 1
 
 		if done == True:
-			print("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
+			logger.info("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
 
-		# print(self.trainable_weights[0][0:10])
-		# print(self.trainable_weights[1])
+		# logger.info(self.trainable_weights[0][0:10])
+		# logger.info(self.trainable_weights[1])
 
 	def update_model(self,X,Y):
 
-		print("Updating model...")
+		logger.info("Updating model...")
 
 		self._update_dataset(X,Y)
 		self._update_features()
@@ -216,7 +218,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		PhiX, 
 		"""
 
-		print("Computing matrix of features PhiX ...")
+		logger.info("Computing matrix of features PhiX ...")
 		self.PhiX = self.get_features_mat(self.X)
 		
 		# pdb.set_trace()
@@ -227,13 +229,13 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		# self.DBG_eigvals = tf.eigvals(tf.transpose(self.PhiX) @ self.PhiX)
 
-		print("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
+		logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
 		try:
 			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
 		except Exception as inst:
 			
-			print("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			print("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) || Fixing it...")
+			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
+			logger.info("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) || Fixing it...")
 
 			# Fix it by modifying the hyperparameters:
 			# Extract the most negative eigenvalue:
@@ -245,13 +247,13 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
 			Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
-			print("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
+			logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
 			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
 			
 			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
 			# bbb = tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var + min_eigval*tf.eye(self.PhiX.shape[1])
 			# bbb2 = tf.math.real(tf.eigvals(bbb))
-			# print("bbb2:",bbb2)
+			# logger.info("bbb2:",bbb2)
 			# pdb.set_trace()
 
 		# Prior mean:
@@ -303,7 +305,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 	def get_predictive_moments(self,xpred):
 		
-		print("Computing matrix of features Phi(xpred) ...")
+		logger.info("Computing matrix of features Phi(xpred) ...")
 		Phi_pred = self.get_features_mat(xpred)
 		
 		# Get mean:
@@ -414,7 +416,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	def call(self, inputs):
 		# y = tf.matmul(inputs, self.w) + self.b
 		# return tf.math.cos(y)
-		print("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
+		logger.info("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
 		pass
 
 
