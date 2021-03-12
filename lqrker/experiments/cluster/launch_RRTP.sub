@@ -4,7 +4,7 @@ n_rep = $(Process) + $INT(Ninit)
 Nqueue = $(Nend) - $(Ninit)
 
 executable = /bin/bash
-arguments = config/cluster/launch.sh $INT(n_rep) RRTP
+arguments = cluster/launch.sh $INT(n_rep) RRTP
 error = condor_RRTP_$INT(n_rep).err
 output = condor_RRTP_$INT(n_rep).out
 log = condor_RRTP_$INT(n_rep).log
