@@ -77,8 +77,6 @@ def main():
 	# hdl_splots[1,0].set_xlim([0,10000])
 	# hdl_splots[1,1].set_xlim([0,10000])
 
-
-
 	plt.show(block=True)
 
 
