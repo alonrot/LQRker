@@ -37,10 +37,15 @@ class SolveLQR:
 
 
 	def _get_controller(self, A, B, Q_des, R_des):
+		"""
+		
+		return:
+		P: solution to the Ricatti equation for discrete time invariant linear systems
+		eig: eigenvalues of the closed loop A - BK
+		K: feedabck gain assuming u = -Kx
+		"""
+
 		P, eig, K = control.dare(A, B, Q_des, R_des)
-		# P: solution to the Ricatti equation for discrete time invariant linear systems
-		# eig: eigenvalues of the closed loop A - BK
-		# K: feedabck gain assuming u = -Kx
 
 		return K
 
@@ -68,6 +73,11 @@ class SolveLQR:
 		# print("np.linalg.eigvals(Q_tilde_des):",np.linalg.eigvals(Q_tilde_des))
 		# print("np.linalg.eigvals(Q_tilde):",np.linalg.eigvals(Q_tilde))
 		# print("np.absolute(eig):",np.absolute(eig))
+
+
+		# Fix this using Lyapunov equation!!!!!!!!!!!!!
+		# Use test_rrtp_lqr.py
+
 
 		# Too large numbers in large dimensions:
 		A_syl = -A_tilde.T

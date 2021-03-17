@@ -27,7 +27,9 @@ class LQRCostStudent(ObjectiveCostBase):
 
 		self.dim_state = Q_emp.shape[0]
 		self.dim_control = R_emp.shape[0]
-		assert dim_in == self.dim_state + self.dim_control
+		self.dim_in = dim_in
+		if self.dim_in != 1: # If dim_in == 1, special protocol
+			assert self.dim_in == self.dim_state + self.dim_control
 
 		# Parameters:
 		if cfg.initial_state_distribution.mu0 == "zeros":
@@ -67,8 +69,14 @@ class LQRCostStudent(ObjectiveCostBase):
 			if verbo and (ii+1) % Nskip == 1:
 				start = time.time()
 
-			Q_des = tf.linalg.diag(X[ii,0:self.dim_state])
-			R_des = tf.linalg.diag(X[ii,self.dim_state::])
+			if self.dim_in > 1:
+				Q_des = tf.linalg.diag(X[ii,0:self.dim_state])
+				R_des = tf.linalg.diag(X[ii,self.dim_state::])
+			else:
+				Q_des = tf.linalg.diag(X[ii])
+				R_des = tf.constant([[1]])
+
+			# pdb.set_trace()
 
 			# logger.info("Computing cost for point nr. {0:d} / {1:d}".format(ii+1,Npoints))
 			for jj in range(self.Nsys):

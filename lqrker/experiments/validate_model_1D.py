@@ -9,34 +9,37 @@ from lqrker.losses import LossStudentT, LossGaussian
 
 import gpflow
 
-if __name__ == "__main__":
-	
-	dim = 1
-	Nfeat = 200
-	sigma_n = 0.5 # The cholesky decomposition is sensitive to this number. If too small, it fails
-	nu = 2.1
-	rrtp_lqr = RRTPLQRfeatures(dim=dim,
-									Nfeat=Nfeat,
-									sigma_n=sigma_n,
-									nu=nu)
-	Xlim = 2.0
+import hydra
 
-	# Define cost objective:
-	lqr_cost_student = LQRCostStudent(dim_in=dim,sigma_n=0.05*sigma_n,nu=nu)
+import numpy as np
 
-	# Generate training data:
-	Nevals = 15
-	X = 10**tf.random.uniform(shape=(Nevals,dim),minval=-Xlim,maxval=Xlim)
-	Y = lqr_cost_student.evaluate(X)
+from generate_dataset import generate_dataset
+from validate_model import split_dataset
 
-	# Throw data into model and optimize its hyperparameters:
-	rrtp_lqr.update_model(X,Y)
+@hydra.main(config_path=".",config_name="config.yaml")
+def main(cfg):
+
+	X,Y = generate_dataset(cfg)
+
+	# Split dataset:
+	Xtrain, Ytrain, Xtest, Ytest = split_dataset(X,Y,
+												perc_training=cfg.validation.perc_training,
+												Ncut=cfg.validation.Ncut)
+	# Model:
+	dim = eval(cfg.dataset.dim)
+	rrtp_lqr = RRTPLQRfeatures(dim=dim,cfg=cfg.RRTPLQRfeatures)
+	rrtp_lqr.update_model(Xtrain,Ytrain)
 	rrtp_lqr.train_model()
+
+	# pdb.set_trace()
+	
+	xlim = eval(cfg.dataset.xlims)
+	
 
 	# Prediction/test locations:
 	Npred = 200
 	if dim == 1:
-		xpred = 10**tf.reshape(tf.linspace(-Xlim,Xlim,Npred),(-1,1))
+		xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
 	else:
 		xpred = 10**tf.random.uniform(shape=(20,dim),minval=-Xlim,maxval=Xlim)
 
@@ -52,9 +55,10 @@ if __name__ == "__main__":
 	# Regression with gpflow:
 	# pdb.set_trace()
 	ker = gpflow.kernels.Matern52()
-	XX = tf.cast(X,dtype=tf.float64)
-	YY = tf.cast(tf.reshape(Y,(-1,1)),dtype=tf.float64)
+	XX = tf.cast(Xtrain,dtype=tf.float64)
+	YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
 	mod = gpflow.models.GPR(data=(XX,YY), kernel=ker, mean_function=None)
+	sigma_n = cfg.RRTPLQRfeatures.hyperpars.sigma_n.init
 	mod.likelihood.variance.assign(sigma_n**2)
 	mod.kernel.lengthscales.assign(10)
 	mod.kernel.variance.assign(5.0)
@@ -64,22 +68,24 @@ if __name__ == "__main__":
 	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=300))
 	gpflow.utilities.print_summary(mod)
 
-	# Calculate true cost:
-	f_cost = lqr_cost_student.evaluate(xpred,add_noise=False)
+	# # Calculate true cost:
+	# f_cost = lqr_cost_student.evaluate(xpred,add_noise=False)
 
-	# Validate:
-	loss_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),nu=nu)
-	loss_gpflow = LossGaussian(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow)
+	# # Validate:
+	# loss_rrtp = LossStudentT(mean_pred=mean_pred,var_pred=tf.linalg.diag_part(cov_pred),nu=nu)
+	# loss_gpflow = LossGaussian(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow)
 	
-	smse_rrtp = loss_rrtp.SMSE(f_cost)
-	smse_gp = loss_gpflow.SMSE(f_cost)
-	print("smse_rrtp:",smse_rrtp)
-	print("smse_gp:",smse_gp)
+	# smse_rrtp = loss_rrtp.SMSE(f_cost)
+	# smse_gp = loss_gpflow.SMSE(f_cost)
+	# print("smse_rrtp:",smse_rrtp)
+	# print("smse_gp:",smse_gp)
 
-	msll_rrtp = loss_rrtp.MSLL(f_cost)
-	msll_gp = loss_gpflow.MSLL(f_cost)
-	print("msll_rrtp:",msll_rrtp)
-	print("msll_gp:",msll_gp)
+	# msll_rrtp = loss_rrtp.MSLL(f_cost)
+	# msll_gp = loss_gpflow.MSLL(f_cost)
+	# print("msll_rrtp:",msll_rrtp)
+	# print("msll_gp:",msll_gp)
+
+	# pdb.set_trace()
 
 
 	if dim == 1:
@@ -93,9 +99,9 @@ if __name__ == "__main__":
 		fpred_quan_minus = mean_pred - std_pred
 		hdl_splots[0].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
 			alpha=.2, fc="blue", ec='None')
-		hdl_splots[0].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
+		hdl_splots[0].plot(Xtrain,Ytrain,color="black",linestyle="None",markersize=5,marker="o")
 		hdl_splots[0].set_xlim([xpred[0,0],xpred[-1,0]])
-		hdl_splots[0].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
+		# hdl_splots[0].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
 		# hdl_splots[0].plot(xpred,sample_paths,linestyle="-",marker=None,color="red")
 
@@ -108,9 +114,9 @@ if __name__ == "__main__":
 		fpred_quan_minus = mean_pred_gpflow - std_pred_gpflow
 		hdl_splots[2].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus,(fpred_quan_plus)[::-1]],axis=0),\
 			alpha=.2, fc="blue", ec='None')
-		hdl_splots[2].plot(X,Y,color="black",linestyle="None",markersize=5,marker="o")
+		hdl_splots[2].plot(Xtrain,Ytrain,color="black",linestyle="None",markersize=5,marker="o")
 		hdl_splots[2].set_xlim([xpred[0,0],xpred[-1,0]])
-		hdl_splots[2].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
+		# hdl_splots[2].plot(xpred,f_cost,linestyle="--",marker=None,color="black")
 
 		entropy_pred_gpflow = 0.5*tf.math.log(var_pred_gpflow)
 		hdl_splots[3].plot(xpred,entropy_pred_gpflow)
@@ -142,6 +148,9 @@ if __name__ == "__main__":
 
 	"""
 
+if __name__ == "__main__":
+
+	main()
 
 
 

@@ -9,7 +9,8 @@ hydra:
 defaults:
   - hydra/job_logging : disabled # Completely deactivate the hydra logging.
   - config: LQRfeatures
-  - scheme: normal
+  - scheme: one_dim
+  # - scheme: normal
   # - scheme: debug
 
 # The cluster parameters are to be overwritten at run time:

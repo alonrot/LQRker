@@ -1,0 +1,23 @@
+# @package _global_
+RRTPLQRfeatures:
+  hyperpars:
+    weights_features:
+      Nfeat: 20
+  empirical_weights:
+    Q_emp: np.eye(1)
+    R_emp: np.eye(1)
+  learning:
+    epochs: 200
+
+dataset:
+  # Input dimensionality:
+  dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0]"
+  Nevals: 30
+  generate: # Generate a number of cost functions by randomly sampling the system matrices
+    use: False
+
+## Model validation
+validation:
+  perc_training: 20
+  Ncut: None
+  Nfuns: 1
