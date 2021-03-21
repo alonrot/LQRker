@@ -1,5 +1,5 @@
 import numpy as np
-from lqrker.solve_lqr import SolveLQR, GenerateLQRData
+from lqrker.solve_lqr import SolveLQR
 import pdb
 import control
 import matplotlib.pyplot as plt

@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from lqrker.models.rrtp import RRTPLQRfeatures
 
 import numpy as np
-from lqrker.solve_lqr import GenerateLQRData
 
 import gpflow
 

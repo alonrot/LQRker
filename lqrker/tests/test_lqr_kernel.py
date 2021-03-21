@@ -4,7 +4,6 @@ import math
 import matplotlib.pyplot as plt
 from lqrker.models.rrtp import RRTPLQRfeatures
 
-from lqrker.objectives.lqr_cost_student import LQRCostStudent
 from lqrker.losses import LossStudentT, LossGaussian
 
 import gpflow
@@ -51,24 +50,7 @@ def LQRexp(theta,Sigma0,A,B,Q_emp,R_emp):
 # @hydra.main(config_path=".",config_name="config.yaml")
 def LQRkernel(theta1,theta2,Sigma0,A,B,Q_emp,R_emp):
 
-	# # Get parameters:
-	# dim = eval(cfg.dataset.dim)
-	# noise_eval_std = cfg.dataset.noise_eval_std
-	# nu = cfg.dataset.nu
-	# xlim = eval(cfg.dataset.xlims)
-	# Nevals = cfg.dataset.Nevals
-
-	# lqr_cost_student = LQRCostStudent(dim_in=dim,sigma_n=noise_eval_std,nu=nu,cfg=cfg.RRTPLQRfeatures,Nsys=1)
-	
-	# A, B = lqr_cost_student.A_samples, lqr_cost_student.B_samples
-
-	# K = lqr_cost_student.lqr_data.solve_lqr._get_controller(A, B, Q_des, R_des)
-
-	# np.random.seed(1)
-
-	# -----------------------------------------------------------------------------
-
-	# INFO: Infinite horizon case
+	#Infinite horizon case
 	P1 = get_laypunov_sol(A,B,Q_emp,R_emp,theta1)
 	P2 = get_laypunov_sol(A,B,Q_emp,R_emp,theta1)
 

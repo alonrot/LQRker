@@ -1,69 +1,41 @@
 import numpy as np
-from lqrker.solve_lqr import SolveLQR, GenerateLQRData
+from lqrker.utils.solve_lqr import SolveLQR
+from lqrker.utils.generate_linear_systems import GenerateLinearSystems
 import pdb
-
-
-def test_generate_lqr_data():
-
-	# Q_emp = np.array([[1.0,0.0],[0.0,1.0]])
-	# R_emp = np.array([[0.1,0.0],[0.0,0.1]])
-
-	Q_emp = np.array([[1.0]])
-	R_emp = np.array([[0.1]])
-
-	dim_state = Q_emp.shape[0]
-	dim_control = R_emp.shape[1]
-	
-	# Distribution of the initial condition:
-	# The choice of the initial condition does not affect the final cost value
-	# in LTI systems controlled with infinite horizon LQR
-	# However, the parameters of the distribution affect the final solution
-	mu0 = np.zeros((dim_state,1))
-	Sigma0 = np.eye(dim_state)
-
-	# Number of systems to sample:
-	Nsys = 10
-
-	# Number of controller designs to sample, for each samples system:
-	Ncon = 15
-
-	generate_lqr_data = GenerateLQRData(Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon)
-
-	cost_values_all, theta_pars_all = generate_lqr_data.compute_cost_for_each_controller()
-
-	pdb.set_trace()
+import matplotlib.pyplot as plt
 
 def test_solve_lqr():
+	"""
 
-	# Q_emp = np.array([[1.0,0.0],[0.0,1.0]])
-	# R_emp = np.array([[0.1,0.0],[0.0,0.1]])
+	Testing the SolveLQR class
+	"""
 
-	Q_emp = np.array([[1.0]])
-	R_emp = np.array([[0.1]])
+	Q_emp = np.eye(4)
+	R_emp = 0.1*np.eye(1)
 
 	dim_state = Q_emp.shape[0]
 	dim_control = R_emp.shape[1]
 
-	A = np.random.uniform(size=Q_emp.shape,low=-2.0,high=2.0)
-	B = np.random.uniform(size=(dim_state,dim_control),low=-2.0,high=2.0)
-
-	# Controlability:
-	ctrb = np.hstack((B,np.matmul(A,B)))
-	rank = np.linalg.matrix_rank(ctrb)
-	assert rank == Q_emp.shape[0], "The generated system is not controllable"
+	generate_linear_systems =  GenerateLinearSystems(dim_state,dim_control,Nsys=1,check_controllability=True)
+	A_samples, B_samples = generate_linear_systems()
+	A = A_samples[0,:,:]
+	B = B_samples[0,:,:]
 
 	mu0 = np.zeros((dim_state,1))
 	Sigma0 = np.eye(dim_state)
 
 	solve_lqr = SolveLQR(Q_emp,R_emp,mu0,Sigma0)
 
-	# pdb.set_trace()
+	J_mean = solve_lqr.forward_simulation_expected_value(A,B,Q_des=Q_emp,R_des=R_emp)
+	J_samples = solve_lqr.forward_simulation_with_random_initial_condition(A,B,Q_des=Q_emp,R_des=R_emp,Nsamples=1000)
+	P = solve_lqr.get_Lyapunov_solution(A,B,Q_des=Q_emp,R_des=R_emp)
+	print("P = ",P)
 
-	J = solve_lqr.forward_simulation(A,B,Q_des=Q_emp,R_des=R_emp)
-	print("J = ",J)
+	hdl_fig, hdl_splots = plt.subplots(1,1,figsize=(14,10),sharex=True)
+	hdl_splots.hist(J_samples,bins=50)
+	hdl_splots.axvline(x=J_mean,color="red")
+	plt.show(block=True)
 
 if __name__ == "__main__":
 
-	# test_solve_lqr()
-
-	test_generate_lqr_data()
+	test_solve_lqr()

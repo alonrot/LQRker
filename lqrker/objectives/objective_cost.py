@@ -18,5 +18,5 @@ class ObjectiveCostBase(ABC):
 		self.sigma_n = sigma_n # Additive noise
 
 	@abstractmethod
-	def evaluate(self,X,add_noise=True):
+	def evaluate(self,X,with_noise=True):
 		return NotImplementedError
