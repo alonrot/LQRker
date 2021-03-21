@@ -232,7 +232,7 @@ class logLQRkernelNoiselessProcess(gpflow.kernels.Kernel):
 	def __init__(self,cfg: dict,A=None, B=None):
 		super().__init__(active_dims=[0])
 
-		self.lqr_ker = LQRkernelNoiselessProcess(cfg)
+		self.lqr_ker = LQRkernelNoiselessProcess(cfg,A,B)
 		self.lqr_mean = LQRMean(cfg, A, B)
 
 	def K(self,X,X2=None):
@@ -296,7 +296,7 @@ class logLQRkernelNoiselessProcess(gpflow.kernels.Kernel):
 
 class logLQRMean(gpflow.mean_functions.MeanFunction):
 	def __init__(self,cfg: dict,A=None, B=None):
-		self.lqr_ker = LQRkernelNoiselessProcess(cfg)
+		self.lqr_ker = LQRkernelNoiselessProcess(cfg,A,B)
 		self.lqr_mean = LQRMean(cfg, A, B)
 
 	def __call__(self,X):
@@ -373,8 +373,8 @@ def main(cfg: dict) -> None:
 	np.random.seed(my_seed)
 	tf.random.set_seed(my_seed)
 
-	activate_log_process = False
-	# activate_log_process = True
+	# activate_log_process = False
+	activate_log_process = True
 
 	dim = eval(cfg.dataset.dim)
 
@@ -425,7 +425,8 @@ def main(cfg: dict) -> None:
 	if activate_log_process:
 
 		# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow )
-		mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
+		# mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
+		mean_vec = tf.exp( mean_pred_gpflow ) # Median
 
 		fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
 		fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
