@@ -400,10 +400,10 @@ def main(cfg: dict) -> None:
 
 	# Regression with gpflow:
 	if activate_log_process:
-		lqr_ker = logLQRkernelNoiselessProcess(cfg.RRTPLQRfeatures)
+		lqr_ker = logLQRkernelNoiselessProcess(cfg=cfg.RRTPLQRfeatures,A=A,B=B)
 		lqr_mean = logLQRMean(cfg=cfg.RRTPLQRfeatures,A=A,B=B)
 	else:
-		lqr_ker = LQRkernelNoiselessProcess(cfg.RRTPLQRfeatures)
+		lqr_ker = LQRkernelNoiselessProcess(cfg.RRTPLQRfeatures,A=A,B=B)
 		lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,A=A,B=B)
 
 	# pdb.set_trace()
@@ -425,17 +425,20 @@ def main(cfg: dict) -> None:
 	if activate_log_process:
 
 		# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow )
+		mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
 
-		# fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
-		# fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
-		# # pdb.set_trace()
+		fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
+		fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
+
+		# pdb.set_trace()
+		Ytrain = tf.exp(Ytrain)
 
 
-		mean_vec = mean_pred_gpflow
+		# mean_vec = mean_pred_gpflow
 		
-		std_pred_gpflow = np.sqrt(var_pred_gpflow)
-		fpred_quan_plus = mean_pred_gpflow + 2.*std_pred_gpflow
-		fpred_quan_minus = mean_pred_gpflow - 2.*std_pred_gpflow
+		# std_pred_gpflow = np.sqrt(var_pred_gpflow)
+		# fpred_quan_plus = mean_pred_gpflow + 2.*std_pred_gpflow
+		# fpred_quan_minus = mean_pred_gpflow - 2.*std_pred_gpflow
 
 
 	else:
