@@ -266,8 +266,8 @@ class logLQRkernelNoiselessProcess(gpflow.kernels.Kernel):
 
 		if add_noise:
 			# pdb.set_trace()
-			Kmat += 1e-1*tf.eye(Kmat.shape[0],dtype=tf.float64)
-			# pass
+			# Kmat += 1e-1*tf.eye(Kmat.shape[0],dtype=tf.float64)
+			pass
 
 		# pdb.set_trace()
 
@@ -305,7 +305,9 @@ class logLQRMean(gpflow.mean_functions.MeanFunction):
 
 		Kvec = self.lqr_ker.K_diag(X)
 
-		mean_vec = tf.math.log(mX) - 0.5 * tf.reshape(Kvec,(-1,1))
+		# mean_vec = tf.math.log(mX) - 0.5 * tf.reshape(Kvec,(-1,1))
+
+		mean_vec = 2.*tf.math.log(mX) - 0.5 * tf.math.log( mX**2 + tf.reshape(Kvec,(-1,1)) )
 
 		# pdb.set_trace()
 
@@ -424,9 +426,9 @@ def main(cfg: dict) -> None:
 
 	if activate_log_process:
 
-		# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow )
-		# mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
-		mean_vec = tf.exp( mean_pred_gpflow ) # Median
+		# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow ) # Mean
+		mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
+		# mean_vec = tf.exp( mean_pred_gpflow ) # Median
 
 		fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
 		fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
