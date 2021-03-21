@@ -49,7 +49,10 @@ class SolveLQR:
 		K: feedabck gain assuming u = -Kx
 		"""
 
-		P, eig, K = control.dare(A, B, Q_des, R_des)
+		try:
+			P, eig, K = control.dare(A, B, Q_des, R_des)
+		except:
+			pdb.set_trace()
 
 		return K
 

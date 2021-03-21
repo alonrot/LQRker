@@ -77,23 +77,28 @@ def model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred):
 	gpflow.utilities.print_summary(mod)
 	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 
-	# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow ) # Mean
-	# mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
-	mean_vec = tf.exp( mean_pred_gpflow ) # Median
+	transform_moments_back = True
+	# transform_moments_back = False
+	if transform_moments_back:
 
-	# The noise sigma_n plays an important role
+		# We transform the moments of p(f* | D) back to the moments of Y:
+		# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow ) # Mean
+		# mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
+		mean_vec = tf.exp( mean_pred_gpflow ) # Median
 
-	fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
-	fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
+		fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
+		fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
 
-	# pdb.set_trace()
-	Ytrain = tf.exp(Ytrain)
+		# pdb.set_trace()
+		Ytrain = tf.exp(Ytrain)
 
-	# mean_vec = mean_pred_gpflow
-	
-	# std_pred_gpflow = np.sqrt(var_pred_gpflow)
-	# fpred_quan_plus = mean_pred_gpflow + 2.*std_pred_gpflow
-	# fpred_quan_minus = mean_pred_gpflow - 2.*std_pred_gpflow
+	else:
+
+		# We provide the moments of p(f* | D):
+		mean_vec = mean_pred_gpflow	
+		std_pred_gpflow = np.sqrt(var_pred_gpflow)
+		fpred_quan_plus = mean_pred_gpflow + 2.*std_pred_gpflow
+		fpred_quan_minus = mean_pred_gpflow - 2.*std_pred_gpflow
 
 	return mean_vec, fpred_quan_minus, fpred_quan_plus, Xtrain, Ytrain
 
@@ -108,7 +113,7 @@ def main(cfg: dict) -> None:
 	Use GPflow and a tailored kernel
 	"""
 	
-	my_seed = 1
+	my_seed = 3
 	np.random.seed(my_seed)
 	tf.random.set_seed(my_seed)
 
@@ -146,6 +151,20 @@ def main(cfg: dict) -> None:
 	hdl_splots[1].set_xlabel("x")
 
 	plt.show(block=True)
+
+
+	"""
+	TODO
+	====
+
+	1) Optimization parameters in the logGP and GP processes. While Sigma0 is a
+	user choice, we can play around with sigma_n. We can't optimize if the kernel
+	isn't fully implemented in tensorflow.
+	2) Extend the kernel for multiple systems
+	3) 
+
+	"""
+
 
 
 if __name__ == "__main__":
