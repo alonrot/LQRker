@@ -372,12 +372,21 @@ def main(cfg: dict) -> None:
 
 	# kernel_analysis(cfg,Ndiv=51)
 	
-	my_seed = 7
+	my_seed = 1
 	np.random.seed(my_seed)
 	tf.random.set_seed(my_seed)
 
-	# activate_log_process = False
-	activate_log_process = True
+	activate_log_process = False
+	# activate_log_process = True
+
+
+
+	# Small variances make the effect of the log Gaussian not visible.
+	# Pump in some variance
+
+
+
+
 
 	dim = eval(cfg.dataset.dim)
 
@@ -415,7 +424,7 @@ def main(cfg: dict) -> None:
 	YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
 	mod = gpflow.models.GPR(data=(XX,YY), kernel=lqr_ker, mean_function=lqr_mean)
 	# sigma_n = cfg.RRTPLQRfeatures.hyperpars.sigma_n.init
-	sigma_n = 0.1
+	sigma_n = 10.0
 	mod.likelihood.variance.assign(sigma_n**2)
 	# mod.kernel.lengthscales.assign(10)
 	# mod.kernel.variance.assign(5.0)
@@ -427,9 +436,13 @@ def main(cfg: dict) -> None:
 
 	if activate_log_process:
 
+		# var_pred_gpflow = 100.*var_pred_gpflow
+
 		# mean_vec = tf.exp( mean_pred_gpflow + 0.5 * var_pred_gpflow ) # Mean
-		mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
-		# mean_vec = tf.exp( mean_pred_gpflow ) # Median
+		# mean_vec = tf.exp( mean_pred_gpflow - var_pred_gpflow ) # Mode
+		mean_vec = tf.exp( mean_pred_gpflow ) # Median
+
+		# The noise plays an important role
 
 		fpred_quan_plus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.95 - 1.),dtype=tf.float64) )
 		fpred_quan_minus = tf.exp( mean_pred_gpflow  + tf.sqrt(2.0*var_pred_gpflow) * tf.cast(tf.math.erfinv(2.*0.05 - 1.),dtype=tf.float64) )
@@ -448,6 +461,8 @@ def main(cfg: dict) -> None:
 	else:
 
 		mean_vec = mean_pred_gpflow
+
+		# var_pred_gpflow = 100.*var_pred_gpflow
 		
 		std_pred_gpflow = np.sqrt(var_pred_gpflow)
 		fpred_quan_plus = mean_pred_gpflow + 2.*std_pred_gpflow
