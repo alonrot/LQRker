@@ -29,10 +29,13 @@ def main(cfg: dict) -> None:
 	np.random.seed(my_seed)
 	tf.random.set_seed(my_seed)
 
-	# activate_log_process = False
-	activate_log_process = True
+	activate_log_process = False
+	# activate_log_process = True
 
-	dim = eval(cfg.dataset.dim)
+	if isinstance(cfg.dataset.dim,str):
+		dim = eval(cfg.dataset.dim)
+	else:
+		dim = cfg.dataset.dim
 
 	X,Y,A,B = generate_dataset(cfg)
 

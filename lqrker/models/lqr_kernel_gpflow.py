@@ -28,26 +28,16 @@ class LQRkernel(gpflow.kernels.Kernel):
 	def __init__(self,cfg, dim, A_samples, B_samples):
 		super().__init__(active_dims=[0])
 
-		self.Q_emp = eval(cfg.empirical_weights.Q_emp)
-		self.R_emp = eval(cfg.empirical_weights.R_emp)
 
-		self.dim_state = self.Q_emp.shape[0]
+		self.dim_state = cfg.dim_state
 		self.dim_in = dim
 
-		# Parameters:
-		if cfg.initial_state_distribution.mu0 == "zeros":
-			mu0 = np.zeros((self.dim_state,1))
-		elif cfg.initial_state_distribution.mu0 == "random":
-			pass
-		else:
-			raise ValueError
+		mu0 = eval(cfg.initial_state_distribution.mu0)
+		self.Sigma0 = eval(cfg.initial_state_distribution.Sigma0)
 
-		if cfg.initial_state_distribution.Sigma0 == "identity":
-			self.Sigma0 = np.eye(self.dim_state)
-		else:
-			raise ValueError
-
-		self.solve_lqr = SolveLQR(self.Q_emp,self.R_emp,mu0,self.Sigma0)
+		Q_emp = eval(cfg.empirical_weights.Q_emp)
+		R_emp = eval(cfg.empirical_weights.R_emp)
+		self.solve_lqr = SolveLQR(Q_emp,R_emp,mu0,self.Sigma0)
 
 		self.A_samples = A_samples
 		self.B_samples = B_samples
@@ -151,26 +141,16 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 	"""
 	def __init__(self, cfg, dim, A_samples=None, B_samples=None):
 
-		self.Q_emp = eval(cfg.empirical_weights.Q_emp)
-		self.R_emp = eval(cfg.empirical_weights.R_emp)
+		Q_emp = eval(cfg.empirical_weights.Q_emp)
+		R_emp = eval(cfg.empirical_weights.R_emp)
 
-		self.dim_state = self.Q_emp.shape[0]
+		self.dim_state = Q_emp.shape[0]
 		self.dim_in = dim
 
-		# Parameters:
-		if cfg.initial_state_distribution.mu0 == "zeros":
-			mu0 = np.zeros((self.dim_state,1))
-		elif cfg.initial_state_distribution.mu0 == "random":
-			pass
-		else:
-			raise ValueError
+		mu0 = eval(cfg.initial_state_distribution.mu0)
+		self.Sigma0 = eval(cfg.initial_state_distribution.Sigma0)
 
-		if cfg.initial_state_distribution.Sigma0 == "identity":
-			self.Sigma0 = np.eye(self.dim_state)
-		else:
-			raise ValueError
-
-		self.solve_lqr = SolveLQR(self.Q_emp,self.R_emp,mu0,self.Sigma0)
+		self.solve_lqr = SolveLQR(Q_emp,R_emp,mu0,self.Sigma0)
 
 		self.A_samples = A_samples
 		self.B_samples = B_samples

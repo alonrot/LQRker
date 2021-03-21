@@ -18,7 +18,7 @@ class LQRCostChiSquared(ObjectiveCostBase):
 	
 
 	This class generates samples from the LQR cost by letting the initial
-	condition be a random sample.
+	condition x0 ~ N(mu0,Sigma0) be a random sample.
 	A collection of system samples (A_samples,B_samples) can be passed.
 	Otherwise, a number of random controllable system samples will be generated.
 
@@ -27,27 +27,14 @@ class LQRCostChiSquared(ObjectiveCostBase):
 	def __init__(self,dim_in,cfg,Nsys=1,A_samples=None,B_samples=None):
 		super().__init__(dim_in,sigma_n=0.0)
 
-		Q_emp = eval(cfg.empirical_weights.Q_emp)
-		R_emp = eval(cfg.empirical_weights.R_emp)
-
-		self.dim_state = Q_emp.shape[0]
-		self.dim_control = R_emp.shape[0]
+		self.dim_state = cfg.dim_state
+		self.dim_control = cfg.dim_control
 		self.dim_in = dim_in
 		if self.dim_in != 1: # If dim_in == 1, special protocol
 			assert self.dim_in == self.dim_state + self.dim_control
 
-		# Parameters:
-		if cfg.initial_state_distribution.mu0 == "zeros":
-			mu0 = np.zeros((self.dim_state,1))
-		elif cfg.initial_state_distribution.mu0 == "random":
-			pass
-		else:
-			raise ValueError
-
-		if cfg.initial_state_distribution.Sigma0 == "identity":
-			Sigma0 = np.eye(self.dim_state)
-		else:
-			raise ValueError
+		mu0 = eval(cfg.initial_state_distribution.mu0)
+		Sigma0 = eval(cfg.initial_state_distribution.Sigma0)
 
 		self.Nsys = Nsys
 
@@ -58,7 +45,9 @@ class LQRCostChiSquared(ObjectiveCostBase):
 		else:
 			self.A_samples = A_samples
 			self.B_samples = B_samples
-
+		
+		Q_emp = eval(cfg.empirical_weights.Q_emp)
+		R_emp = eval(cfg.empirical_weights.R_emp)
 		self.solve_lqr = SolveLQR(Q_emp,R_emp,mu0,Sigma0)
 
 	def evaluate(self,X,with_noise=True,verbo=False):

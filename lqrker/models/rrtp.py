@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 # import tensorflow.experimental.numpy as tnp # https://www.tensorflow.org/guide/tf_numpy
 
 import numpy as np
-from lqrker.objectives.lqr_cost_student import LQRCostStudent
+from lqrker.objectives.lqr_cost_chi2 import LQRCostChiSquared
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -456,8 +456,10 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 		nu = cfg.hyperpars.nu
 		Nsys = cfg.hyperpars.weights_features.Nfeat # Use as many systems as number of features
 
-		self.lqr_cost_student = LQRCostStudent(	dim_in=dim,sigma_n=0.0,nu=nu,\
-												cfg=cfg,Nsys=Nsys)
+
+		self.lqr_cost = LQRCostChiSquared(dim_in=dim,cfg=cfg,Nsys=Nsys)
+		print("Make sure we're NOT using noise in the config file...")
+		pdb.set_trace()
 
 	def get_features_mat(self,X):
 		"""
@@ -465,7 +467,7 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 		return: PhiX: [Npoints, Nfeat]
 		"""
 
-		cost_values_all = self.lqr_cost_student.evaluate(X,add_noise=False,verbo=True)
+		cost_values_all = self.lqr_cost.evaluate(X,add_noise=False,verbo=True)
 
 		return cost_values_all
 

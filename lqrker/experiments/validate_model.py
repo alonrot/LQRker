@@ -4,7 +4,6 @@ import math
 import matplotlib.pyplot as plt
 from lqrker.models.rrtp import RRTPLQRfeatures
 
-from lqrker.objectives.lqr_cost_student import LQRCostStudent
 from lqrker.losses import LossStudentT, LossGaussian
 
 import gpflow

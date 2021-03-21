@@ -2,9 +2,7 @@ import tensorflow as tf
 import pdb
 import math
 import matplotlib.pyplot as plt
-from lqrker.models.rrtp import RRTPLQRfeatures
 
-from lqrker.objectives.lqr_cost_student import LQRCostStudent
 from lqrker.objectives.lqr_cost_chi2 import LQRCostChiSquared
 from lqrker.losses import LossStudentT, LossGaussian
 
@@ -25,18 +23,21 @@ logger = get_logger(__name__)
 def generate_dataset(cfg: dict):
 
 	# Get parameters:
-	dim = eval(cfg.dataset.dim)
+	if isinstance(cfg.dataset.dim,str):
+		dim = eval(cfg.dataset.dim)
+	else:
+		dim = cfg.dataset.dim
 	noise_eval_std = cfg.dataset.noise_eval_std
 	nu = cfg.dataset.nu
 	xlim = eval(cfg.dataset.xlims)
 	Nevals = cfg.dataset.Nevals
 
-	if cfg.dataset.which_cost == "LQRCostChiSquared":
-		lqr_cost = LQRCostChiSquared(dim_in=dim,cfg=cfg.RRTPLQRfeatures,Nsys=1)
-	elif cfg.dataset.which_cost == "LQRCostStudent":
-		lqr_cost = LQRCostStudent(dim_in=dim,sigma_n=noise_eval_std,nu=nu,cfg=cfg.RRTPLQRfeatures,Nsys=1)
-	else:
-		raise ValueError("Cost misspecified")
+	lqr_cost = LQRCostChiSquared(dim_in=dim,cfg=cfg.RRTPLQRfeatures,Nsys=1)
+	# if cfg.dataset.which_cost == "LQRCostChiSquared":
+	# elif cfg.dataset.which_cost == "LQRCostStudent":
+	# 	lqr_cost = LQRCostStudent(dim_in=dim,sigma_n=noise_eval_std,nu=nu,cfg=cfg.RRTPLQRfeatures,Nsys=1)
+	# else:
+	# 	raise ValueError("Cost misspecified")
 
 	if cfg.dataset.massive.use:
 

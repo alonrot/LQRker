@@ -3,15 +3,14 @@ RRTPLQRfeatures:
   hyperpars:
     weights_features:
       Nfeat: 50
-  empirical_weights:
-    Q_emp: np.eye(1)
-    R_emp: np.eye(1)
+  dim_state: 1
+  dim_control: 1
   learning:
     epochs: 200
 
 dataset:
   # Input dimensionality:
-  dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0]"
+  dim: 1
   Nevals: 20
   generate: # Generate a number of cost functions by randomly sampling the system matrices
     use: False

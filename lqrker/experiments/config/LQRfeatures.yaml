@@ -9,12 +9,14 @@ RRTPLQRfeatures:
     weights_features:
       Nfeat: 200 # Number of features (i.e., number of linear models to sample)
       init: "ones" # Initial value for the elements of the diagonal of the diagonal matrix that defines the weights covariance
+  dim_state: 8
+  dim_control: 2
   empirical_weights:
-    Q_emp: np.eye(8)
-    R_emp: np.eye(2)
+    Q_emp: np.eye(${RRTPLQRfeatures.dim_state})
+    R_emp: np.eye(${RRTPLQRfeatures.dim_control})
   initial_state_distribution:
-    mu0: "zeros" # {zeros,random}
-    Sigma0: "identity"
+    mu0: np.zeros((${RRTPLQRfeatures.dim_state},1))
+    Sigma0: 0.1*np.eye(${RRTPLQRfeatures.dim_state})
   check_controllability: True
   learning:
     learning_rate: 0.001
@@ -24,13 +26,13 @@ RRTPLQRfeatures:
 
 dataset:
   # Input dimensionality:
-  dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0] + ${RRTPLQRfeatures.empirical_weights.R_emp}.shape[0]"
+  dim: "${RRTPLQRfeatures.dim_state} + ${RRTPLQRfeatures.dim_control}"
   Nevals: 10000
   xlims: "[-2,2]" # Limits of hypercube
   noise_eval_std: 0.00
   nu: "${RRTPLQRfeatures.hyperpars.nu}"
   return_sampled_system: True
-  # which_cost: "LQRCostStudent"
+  # which_cost: "LQRCostStudent" # deprecated
   which_cost: "LQRCostChiSquared"
   with_noise: True
   massive: # Generate a number of cost functions by randomly sampling the system matrices
