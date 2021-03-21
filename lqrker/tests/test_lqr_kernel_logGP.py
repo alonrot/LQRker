@@ -164,6 +164,7 @@ def main(cfg: dict) -> None:
 	2) We could also see Sigma0 as a parameter, even though it's fixed for sampling x0 to get samples of the LQR cost
 	3) Extend the kernel for multiple systems
 
+
 	"""
 
 
