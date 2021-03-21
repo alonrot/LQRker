@@ -14,7 +14,6 @@ from lqrker.models.lqr_kernel_trans_gpflow import LQRkernelTransformed, LQRMeanT
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
-
 def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 
 	# Split dataset:
@@ -157,11 +156,13 @@ def main(cfg: dict) -> None:
 	TODO
 	====
 
+	0) tests/test_lqr_kernel_logGP_analysis.py -> the Gram Matrix returns almost
+	the same values everywhere....
 	1) Optimization parameters in the logGP and GP processes. While Sigma0 is a
 	user choice, we can play around with sigma_n. We can't optimize if the kernel
 	isn't fully implemented in tensorflow.
-	2) Extend the kernel for multiple systems
-	3) 
+	2) We could also see Sigma0 as a parameter, even though it's fixed for sampling x0 to get samples of the LQR cost
+	3) Extend the kernel for multiple systems
 
 	"""
 

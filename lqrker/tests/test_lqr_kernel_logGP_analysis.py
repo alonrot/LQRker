@@ -24,16 +24,26 @@ def kernel_analysis(cfg):
 	plot.
 	"""
 
-	Ndiv = 51
+	my_seed = 1
+	np.random.seed(my_seed)
+	tf.random.set_seed(my_seed)
+
+	if isinstance(cfg.dataset.dim,str):
+		dim = eval(cfg.dataset.dim)
+	else:
+		dim = cfg.dataset.dim
+
+	_,_,A,B = generate_dataset(cfg)
+
 	activate_log_process = True
 	# activate_log_process = False
-
 	if activate_log_process:
-		ker = LQRkernelTransformed(cfg.RRTPLQRfeatures)
+		ker = LQRkernelTransformed(cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
 	else:
-		ker = LQRkernel(cfg.RRTPLQRfeatures)
+		ker = LQRkernel(cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
 
 	# Input vector:
+	Ndiv = 61
 	xlim = eval(cfg.dataset.xlims)
 	xpred = 10**tf.linspace(xlim[0],xlim[1],Ndiv)
 	xpred = tf.reshape(xpred,(-1,1))
@@ -42,7 +52,18 @@ def kernel_analysis(cfg):
 
 	Kxpred = ker.K(xpred)
 
-	# pdb.set_trace()
+
+
+	# The matrix returns the same value almost everywhere... Check why...
+
+
+
+
+
+	
+
+
+
 	Kxpredmin = np.amin(Kxpred)
 	Kxpredmax = np.amax(Kxpred)
 

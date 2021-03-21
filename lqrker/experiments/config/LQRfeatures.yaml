@@ -16,7 +16,7 @@ RRTPLQRfeatures:
     R_emp: np.eye(${RRTPLQRfeatures.dim_control})
   initial_state_distribution:
     mu0: np.zeros((${RRTPLQRfeatures.dim_state},1))
-    Sigma0: 0.1*np.eye(${RRTPLQRfeatures.dim_state})
+    Sigma0: np.eye(${RRTPLQRfeatures.dim_state})
   check_controllability: True
   learning:
     learning_rate: 0.001
