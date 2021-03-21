@@ -2,7 +2,7 @@
 RRTPLQRfeatures:
   hyperpars:
     weights_features:
-      Nfeat: 20
+      Nfeat: 50
   empirical_weights:
     Q_emp: np.eye(1)
     R_emp: np.eye(1)
@@ -12,12 +12,12 @@ RRTPLQRfeatures:
 dataset:
   # Input dimensionality:
   dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0]"
-  Nevals: 30
+  Nevals: 2
   generate: # Generate a number of cost functions by randomly sampling the system matrices
     use: False
 
 ## Model validation
 validation:
-  perc_training: 20
+  perc_training: 100
   Ncut: None
   Nfuns: 1

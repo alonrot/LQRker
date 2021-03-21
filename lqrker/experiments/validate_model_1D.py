@@ -19,6 +19,10 @@ from validate_model import split_dataset
 @hydra.main(config_path=".",config_name="config.yaml")
 def main(cfg):
 
+	my_seed = 1
+	np.random.seed(my_seed)
+	tf.random.set_seed(my_seed)
+
 	X,Y = generate_dataset(cfg)
 
 	# Split dataset:
@@ -30,12 +34,9 @@ def main(cfg):
 	rrtp_lqr = RRTPLQRfeatures(dim=dim,cfg=cfg.RRTPLQRfeatures)
 	rrtp_lqr.update_model(Xtrain,Ytrain)
 	rrtp_lqr.train_model()
-
-	# pdb.set_trace()
 	
 	xlim = eval(cfg.dataset.xlims)
 	
-
 	# Prediction/test locations:
 	Npred = 200
 	if dim == 1:
@@ -63,10 +64,10 @@ def main(cfg):
 	mod.kernel.lengthscales.assign(10)
 	mod.kernel.variance.assign(5.0)
 	xxpred = tf.cast(xpred,dtype=tf.float64)
-	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 	opt = gpflow.optimizers.Scipy()
 	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=300))
 	gpflow.utilities.print_summary(mod)
+	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 
 	# # Calculate true cost:
 	# f_cost = lqr_cost_student.evaluate(xpred,add_noise=False)

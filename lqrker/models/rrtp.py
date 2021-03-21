@@ -259,7 +259,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# Prior mean:
 		self.M = tf.zeros((self.X.shape[0],1))
 
-	def fix_eigvals(self,Kmat):
+	@staticmethod
+	def fix_eigvals(Kmat):
 		"""
 
 		Among the negative eigenvalues, get the 'most negative one'

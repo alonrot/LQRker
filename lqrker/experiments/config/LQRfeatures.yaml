@@ -29,6 +29,7 @@ dataset:
   xlims: "[-2,2]" # Limits of hypercube
   noise_eval_std: 0.00
   nu: "${RRTPLQRfeatures.hyperpars.nu}"
+  return_system: True
   generate: # Generate a number of cost functions by randomly sampling the system matrices
     use: False
     save: True

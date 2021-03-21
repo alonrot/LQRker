@@ -89,7 +89,10 @@ class SolveLQR:
 		# B_syl = A_tilde
 		# Q_syl = -Q_tilde
 
-		P = la.solve_sylvester(A_syl,B_syl,Q_syl) # A_syl*P + P*B_syl = Q_syl
+
+		# P = la.solve_sylvester(A_syl,B_syl,Q_syl) # A_syl*P + P*B_syl = Q_syl
+
+		P = la.solve_discrete_lyapunov(A_tilde,Q_tilde)
 
 		# P = P / 10**(0.15*(self.Q_emp.shape[0] + self.R_emp.shape[0]))
 

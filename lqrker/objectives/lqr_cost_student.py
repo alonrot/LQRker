@@ -19,7 +19,7 @@ class LQRCostStudent(ObjectiveCostBase):
 	and leave here only the Student's-t related things (just the noise)
 	"""
 
-	def __init__(self,dim_in,sigma_n,nu,cfg,Nsys=1):
+	def __init__(self,dim_in,sigma_n,nu,cfg,Nsys=1,A=None,B=None):
 		super().__init__(dim_in,sigma_n)
 
 		Q_emp = eval(cfg.empirical_weights.Q_emp)
@@ -49,7 +49,11 @@ class LQRCostStudent(ObjectiveCostBase):
 
 		# Generate single system:
 		self.lqr_data = GenerateLQRData(Q_emp,R_emp,mu0,Sigma0,Nsys,Ncon,check_controllability=cfg.check_controllability)
-		self.A_samples, self.B_samples = self.lqr_data._sample_systems(Nsamples=self.Nsys)
+		if A is None and B is None:
+			self.A_samples, self.B_samples = self.lqr_data._sample_systems(Nsamples=self.Nsys)
+		else:
+			self.A_samples = A
+			self.B_samples = B
 
 		self.dist_student_t = tfp.distributions.StudentT(df=nu,loc=0.0,scale=self.sigma_n)
 

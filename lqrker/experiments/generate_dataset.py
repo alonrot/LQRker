@@ -65,7 +65,12 @@ def generate_dataset(cfg: dict):
 		# X = 10**tf.random.uniform(shape=(Nevals,dim),minval=xlim[0],maxval=xlim[1])
 		Y = lqr_cost_student.evaluate(X,add_noise=True,verbo=True)
 
-		return X,Y
+		if cfg.dataset.return_system:
+			A = lqr_cost_student.A_samples
+			B = lqr_cost_student.B_samples
+			return X,Y,A,B
+		else:
+			return X,Y
 
 
 

@@ -34,7 +34,7 @@ def load_dataset(num_fun):
 
 def split_dataset(X,Y,perc_training,Ncut=None):
 
-	assert perc_training > 0 and perc_training < 100
+	assert perc_training > 0 and perc_training <= 100
 
 	if Ncut is not None and Ncut != "None":
 		assert Ncut <= X.shape[0]
@@ -109,11 +109,11 @@ def validate_gpflow_for_func(cfg,ii):
 	mod.mean_function.c.assign(tf.constant([cfg.GaussianProcess.hyperpars.mean.init]))
 
 	xxpred = tf.cast(Xtest,dtype=tf.float64)
-	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 	opt = gpflow.optimizers.Scipy()
 	maxiter = cfg.GaussianProcess.learning.epochs
 	opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=maxiter))
 	gpflow.utilities.print_summary(mod)
+	mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
 
 	# Validate:
 	loss_gpflow = LossGaussian(mean_pred=mean_pred_gpflow,var_pred=var_pred_gpflow)
