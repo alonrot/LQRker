@@ -308,6 +308,7 @@ class logLQRMean(gpflow.mean_functions.MeanFunction):
 		# mean_vec = tf.math.log(mX) - 0.5 * tf.reshape(Kvec,(-1,1))
 
 		mean_vec = 2.*tf.math.log(mX) - 0.5 * tf.math.log( mX**2 + tf.reshape(Kvec,(-1,1)) )
+		# Inferred from wikipedia
 
 		# pdb.set_trace()
 
@@ -371,7 +372,7 @@ def main(cfg: dict) -> None:
 
 	# kernel_analysis(cfg,Ndiv=51)
 	
-	my_seed = 1
+	my_seed = 7
 	np.random.seed(my_seed)
 	tf.random.set_seed(my_seed)
 

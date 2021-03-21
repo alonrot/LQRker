@@ -12,7 +12,7 @@ RRTPLQRfeatures:
 dataset:
   # Input dimensionality:
   dim: "${RRTPLQRfeatures.empirical_weights.Q_emp}.shape[0]"
-  Nevals: 20
+  Nevals: 3
   generate: # Generate a number of cost functions by randomly sampling the system matrices
     use: False
 
