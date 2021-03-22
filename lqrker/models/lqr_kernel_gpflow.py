@@ -48,11 +48,11 @@ class LQRkernel(gpflow.kernels.Kernel):
 		self.M = self.A_samples.shape[0]
 
 		# Weights:
-		# self.w = (1./self.M)*tf.ones(self.M)
-		self.w = tf.ones(self.M)
+		self.w = (1./self.M)*tf.ones(self.M)
+		# self.w = tf.ones(self.M)
 
 		# Parameter of the distance function:
-		self.eta = 5.0
+		self.eta = 0.1
 
 		# # Prior variance:
 		# self.var_prior = 10.0
