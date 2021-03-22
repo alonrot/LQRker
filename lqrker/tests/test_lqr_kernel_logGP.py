@@ -34,7 +34,7 @@ def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
 														dim_control=cfg.RRTPLQRfeatures.dim_control,
-														Nsys=4,
+														Nsys=10,
 														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
 		A, B = generate_linear_systems()
 
@@ -88,6 +88,15 @@ def model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred):
 	else:
 		dim = cfg.dataset.dim
 
+	# Generate new system samples for the kernel:
+	use_systems_from_cost = False
+	if not use_systems_from_cost:
+		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
+														dim_control=cfg.RRTPLQRfeatures.dim_control,
+														Nsys=10,
+														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
+		A, B = generate_linear_systems()
+
 	lqr_ker = LQRkernelTransformed(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
 	lqr_mean = LQRMeanTransformed(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
 
@@ -130,6 +139,10 @@ def model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred):
 
 	return mean_vec, fpred_quan_minus, fpred_quan_plus, Xtrain, Ytrain, entropy_vec
 
+
+def model_LQRcost_as_mixture_of_Gaussians(cfg,X,Y,A,B,xpred):
+
+
 @hydra.main(config_path="../experiments/",config_name="config.yaml")
 def main(cfg: dict) -> None:
 	"""
@@ -150,7 +163,7 @@ def main(cfg: dict) -> None:
 
 	xlim = eval(cfg.dataset.xlims)
 
-	Npred = 40
+	Npred = 100
 	xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
 
 	X,Y,A,B = generate_dataset(cfg)
@@ -191,12 +204,14 @@ def main(cfg: dict) -> None:
 
 	0) tests/test_lqr_kernel_logGP_analysis.py -> the Gram Matrix returns almost
 	the same values everywhere....
-	1) Optimization parameters in the logGP and GP processes. While Sigma0 is a
-	user choice, we can play around with sigma_n. We can't optimize if the kernel
-	isn't fully implemented in tensorflow.
-	2) We could also see Sigma0 as a parameter, even though it's fixed for sampling x0 to get samples of the LQR cost
-	3) Extend the kernel for multiple systems
-
+	1) Change the system sampling by a normal-Wishart distribution (look at
+	Schon) and weight the kernel parameters accordingly. then, introduce
+	var_prior as an extra parameter to compensate.
+	2) Try to make the parameters we have right now, i.e., l and var_prior
+	trainable. Consider doing ARD for Sigma0(th,th').
+	3) If we're not using cij, refactor the cost and maybe create a git tag to
+	come back to it if necessary.
+	4) Try the mixture of Gaussians. It's quite easy.
 
 	"""
 

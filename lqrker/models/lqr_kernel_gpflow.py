@@ -48,11 +48,15 @@ class LQRkernel(gpflow.kernels.Kernel):
 		self.M = self.A_samples.shape[0]
 
 		# Weights:
-		self.w = (1./self.M)*tf.ones(self.M)
-		# self.w = tf.ones(self.M)
+		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
+		# pdb.set_trace()
+		# self.w = (1./tf.sqrt(1.*self.M))*tf.ones(self.M)
+		# self.w = (1./self.M)*tf.ones(self.M)
+		self.w = tf.ones(self.M)
 
 		# Parameter of the distance function:
-		self.eta = 0.1
+		# self.eta = 0.1 # Plots something for Nsys=4
+		self.eta = 1.0
 
 		# # Prior variance:
 		# self.var_prior = 10.0
@@ -126,7 +130,8 @@ class LQRkernel(gpflow.kernels.Kernel):
 						if sysj_r == sysj_c:
 							k_rc += self.w[sysj_c]**2 * self._LQR_kernel(P_X_ii,P_X_jj)
 						else:
-							k_rc += 2.*self.w[sysj_r]*self.w[sysj_c]*self._LQR_kernel(P_X_ii,P_X_jj)
+							pass # [DBG]: Trying to see what happens if we just do a linear combination of kernels
+							# k_rc += 2.*self.w[sysj_r]*self.w[sysj_c]*self._LQR_kernel(P_X_ii,P_X_jj)
 
 				Kmat[ii,jj] = k_rc
 
@@ -149,6 +154,7 @@ class LQRkernel(gpflow.kernels.Kernel):
 			# pdb.set_trace()
 			pass
 
+		# Convert to tensor, just in case:
 		Kmat = tf.convert_to_tensor(Kmat, dtype=tf.float64)
 
 		return Kmat
