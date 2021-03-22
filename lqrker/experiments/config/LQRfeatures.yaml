@@ -49,9 +49,9 @@ GaussianProcess:
     ls:
       init: 1.0
     sigma_n:
-      init: 1.0
+      init: 0.1
     prior_var:
-      init: 10.0
+      init: 1.0
     mean:
       init: 0.0
   learning:
