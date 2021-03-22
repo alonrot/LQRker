@@ -30,11 +30,11 @@ def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 
 
 	# Generate new system samples for the kernel:
-	use_systems_from_cost = True
+	use_systems_from_cost = False
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
 														dim_control=cfg.RRTPLQRfeatures.dim_control,
-														Nsys=1,
+														Nsys=3,
 														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
 		A, B = generate_linear_systems()
 
@@ -150,7 +150,7 @@ def main(cfg: dict) -> None:
 
 	xlim = eval(cfg.dataset.xlims)
 
-	Npred = 200
+	Npred = 40
 	xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
 
 	X,Y,A,B = generate_dataset(cfg)

@@ -48,10 +48,14 @@ class LQRkernel(gpflow.kernels.Kernel):
 		self.M = self.A_samples.shape[0]
 
 		# Weights:
-		self.w = (1./self.M)*tf.ones(self.M)
+		# self.w = (1./self.M)*tf.ones(self.M)
+		self.w = tf.ones(self.M)
 
 		# Parameter of the distance function:
 		self.eta = 5.0
+
+		# # Prior variance:
+		# self.var_prior = 10.0
 
 	def _LQR_kernel(self,SP1,SP2=None):
 
@@ -145,6 +149,8 @@ class LQRkernel(gpflow.kernels.Kernel):
 			# pdb.set_trace()
 			pass
 
+		Kmat = tf.convert_to_tensor(Kmat, dtype=tf.float64)
+
 		return Kmat
 
 	def K_diag(self,X):
@@ -170,6 +176,9 @@ class LQRkernel(gpflow.kernels.Kernel):
 
 		# print("@K(): Kmat_diag", Kmat_diag)
 		# pdb.set_trace()
+
+		# Convert to tensor, just in case:
+		Kmat_diag = tf.convert_to_tensor(Kmat_diag, dtype=tf.float64)
 
 		return Kmat_diag
 
@@ -260,4 +269,8 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 
 		# print("@K(): mean_vec", mean_vec)
 
+		mean_vec = tf.convert_to_tensor(mean_vec, dtype=tf.float64)
+
 		return mean_vec
+
+
