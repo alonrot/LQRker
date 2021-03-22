@@ -34,7 +34,7 @@ def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
 														dim_control=cfg.RRTPLQRfeatures.dim_control,
-														Nsys=3,
+														Nsys=4,
 														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
 		A, B = generate_linear_systems()
 
