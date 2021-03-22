@@ -14,6 +14,8 @@ from lqrker.models.lqr_kernel_trans_gpflow import LQRkernelTransformed, LQRMeanT
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
+from lqrker.utils.generate_linear_systems import GenerateLinearSystems
+
 def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 
 	# Split dataset:
@@ -25,6 +27,15 @@ def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 		dim = eval(cfg.dataset.dim)
 	else:
 		dim = cfg.dataset.dim
+
+	# Generate new system samples for the kernel:
+	use_systems_from_cost = True
+	if not use_systems_from_cost:
+		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
+														dim_control=cfg.RRTPLQRfeatures.dim_control,
+														Nsys=2,
+														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
+		A, B = generate_linear_systems()
 
 	lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
 	lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
@@ -121,13 +132,13 @@ def main(cfg: dict) -> None:
 
 	xlim = eval(cfg.dataset.xlims)
 
-	Npred = 60
+	Npred = 50
 	xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
 
 	X,Y,A,B = generate_dataset(cfg)
 
-	mean_vec_logGP, fpred_quan_minus_logGP, fpred_quan_plus_logGP, Xtrain, Ytrain_logGP = model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred)
 	mean_vec, fpred_quan_minus, fpred_quan_plus, Xtrain, Ytrain = model_LQRcost_as_GP(cfg,X,Y,A,B,xpred)
+	mean_vec_logGP, fpred_quan_minus_logGP, fpred_quan_plus_logGP, Xtrain, Ytrain_logGP = model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred)
 
 
 	hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(14,10),sharex=True)

@@ -42,6 +42,12 @@ class LQRkernel(gpflow.kernels.Kernel):
 		self.A_samples = A_samples
 		self.B_samples = B_samples
 
+		# Number of systems:
+		self.M = self.A_samples.shape[0]
+
+		# Weights:
+		self.w = (1./self.M)*tf.ones(self.M)
+
 	def _LQR_kernel(self,SP1,SP2=None):
 
 		if SP2 is None:
@@ -60,13 +66,13 @@ class LQRkernel(gpflow.kernels.Kernel):
 			Q_des = tf.linalg.diag(theta_vec)
 			R_des = tf.constant([[1]])
 
-		# TODO: Make this dependent on all the systems (linear combination of P):
-		A = self.A_samples[0,:,:]
-		B = self.B_samples[0,:,:]
+		P_list = []
+		for j in range(self.M):
+			A = self.A_samples[j,:,:]
+			B = self.B_samples[j,:,:]
+			P_list.append( self.solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des) )
 
-		P = self.solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des)
-
-		return P
+		return P_list
 
 	def K(self,X,X2=None):
 		"""
@@ -90,15 +96,35 @@ class LQRkernel(gpflow.kernels.Kernel):
 		for ii in range(X.shape[0]):
 			for jj in range(X2.shape[0]):
 
-				P_X_ii = self._get_Lyapunov_solution(X[ii,:])
-				P_X_jj = self._get_Lyapunov_solution(X2[jj,:])
+				P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+				P_X_jj_list = self._get_Lyapunov_solution(X2[jj,:])
 
-				P_X_ii = self.Sigma0 @ P_X_ii
-				P_X_jj = self.Sigma0 @ P_X_jj
+				k_rc = 0
+				for sysj_r in range(self.M):
+					for sysj_c in range(sysj_r,self.M):
 
-				Kmat[ii,jj] = self._LQR_kernel(P_X_ii,P_X_jj)
+						P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
+						P_X_jj = self.Sigma0 @ P_X_jj_list[sysj_c]
+
+						if sysj_r == sysj_c:
+							k_rc += self.w[sysj_c]**2 * self._LQR_kernel(P_X_ii,P_X_jj)
+						else:
+							k_rc += 2.*self.w[sysj_r]*self.w[sysj_c]*self._LQR_kernel(P_X_ii,P_X_jj)
+
+				Kmat[ii,jj] = k_rc
 
 		# print("@K(): Kmat", Kmat)
+
+		# If square matrix, fix noise:
+		if Kmat.shape[0] == Kmat.shape[1]:
+			
+			# TODO: When self.M > 1, cholesky fails. This, however, doesn't solve it...
+			# Solve this!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			
+			# print("eigvals:",np.linalg.eigvals(Kmat))
+			# Kmat += 1e-2*np.eye(Kmat.shape[0])
+			# pdb.set_trace()
+			pass
 
 		return Kmat
 
@@ -115,11 +141,16 @@ class LQRkernel(gpflow.kernels.Kernel):
 
 		Kmat_diag = np.zeros(X.shape[0])
 		for ii in range(X.shape[0]):
-			P_X_ii = self._get_Lyapunov_solution(X[ii,:])
-			P_X_ii = self.Sigma0 @ P_X_ii
-			Kmat_diag[ii] = self._LQR_kernel(P_X_ii)
+			P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+
+			k_r = 0
+			for sysj_r in range(self.M):
+				P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
+				k_r += self.w[sysj_r]**2*self._LQR_kernel(P_X_ii)
+			Kmat_diag[ii] = k_r
 
 		# print("@K(): Kmat_diag", Kmat_diag)
+		# pdb.set_trace()
 
 		return Kmat_diag
 

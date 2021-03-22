@@ -25,6 +25,14 @@ class GenerateLinearSystems():
 		self.check_controllability = check_controllability
 
 	def _sample_systems(self,Nsamples):
+		"""
+
+		We have assumed that the matrices are sampled following independent
+		matrix-normal distributions.
+		
+		TODO: Propose an inverse-wishart-normal prior, as we'll be allowed to choose
+		the prior eigenvalues for A.
+		"""
 
 		M = np.zeros((self.dim_state,self.dim_state))
 		V = np.eye(self.dim_state)
