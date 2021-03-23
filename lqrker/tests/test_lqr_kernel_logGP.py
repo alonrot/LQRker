@@ -141,6 +141,7 @@ def model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred):
 
 
 def model_LQRcost_as_mixture_of_Gaussians(cfg,X,Y,A,B,xpred):
+	pass
 
 
 @hydra.main(config_path="../experiments/",config_name="config.yaml")

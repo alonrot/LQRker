@@ -41,18 +41,7 @@ class LQRkernel(gpflow.kernels.Kernel):
 		R_emp = eval(cfg.empirical_weights.R_emp)
 		self.solve_lqr = SolveLQR(Q_emp,R_emp,mu0,self.Sigma0)
 
-		self.A_samples = A_samples
-		self.B_samples = B_samples
-
-		# Number of systems:
-		self.M = self.A_samples.shape[0]
-
-		# Weights:
-		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
-		# pdb.set_trace()
-		# self.w = (1./tf.sqrt(1.*self.M))*tf.ones(self.M)
-		# self.w = (1./self.M)*tf.ones(self.M)
-		self.w = tf.ones(self.M)
+		self.update_system_samples_and_weights(A_samples,B_samples)
 
 		# Parameter of the distance function:
 		# self.eta = 0.1 # Plots something for Nsys=4
@@ -86,6 +75,21 @@ class LQRkernel(gpflow.kernels.Kernel):
 			P_list.append( self.solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des) )
 
 		return P_list
+
+	def _define_weights(self,M):
+		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
+		# pdb.set_trace()
+		# w = (1./tf.sqrt(1.*M))*tf.ones(M)
+		w = (1./M)*tf.ones(M)
+		# w = tf.ones(M)
+
+		return w
+
+	def update_system_samples_and_weights(self,A_samples, B_samples):
+		self.A_samples = A_samples
+		self.B_samples = B_samples
+		self.M = self.A_samples.shape[0]
+		self.w = self._define_weights(self.M)
 
 	def Sigma0_dist(self,x_vec, y_vec):
 		return self.Sigma0 * tf.exp(-tf.math.reduce_euclidean_norm(x_vec - y_vec) / self.eta)
@@ -220,14 +224,22 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 
 		self.solve_lqr = SolveLQR(Q_emp,R_emp,mu0,self.Sigma0)
 
+		self.update_system_samples_and_weights(A_samples,B_samples)
+
+	def _define_weights(self,M):
+		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
+		# pdb.set_trace()
+		# w = (1./tf.sqrt(1.*M))*tf.ones(M)
+		w = (1./M)*tf.ones(M)
+		# w = tf.ones(M)
+
+		return w
+
+	def update_system_samples_and_weights(self,A_samples, B_samples):
 		self.A_samples = A_samples
 		self.B_samples = B_samples
-
-		# Number of systems:
 		self.M = self.A_samples.shape[0]
-
-		# Weights:
-		self.w = (1./self.M)*tf.ones(self.M)
+		self.w = self._define_weights(self.M)
 
 	def _get_Lyapunov_solution(self,theta_vec):
 
