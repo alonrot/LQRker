@@ -54,7 +54,7 @@ class LQRkernel(gpflow.kernels.Kernel):
 	def _LQR_kernel(self,SP1,SP2=None):
 
 		if SP2 is None:
-			ker_val = np.trace(SP1)**2 + 2.0*np.linalg.matrix_power(SP1,2)
+			ker_val = np.trace(SP1)**2 + 2.0*np.trace(np.linalg.matrix_power(SP1,2))
 		else:
 			ker_val = np.trace(SP1) * np.trace(SP2) + 2.0*np.trace(SP1 @ SP2)
 
@@ -184,6 +184,7 @@ class LQRkernel(gpflow.kernels.Kernel):
 			for sysj_r in range(self.M):
 				P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
 				k_r += self.w[sysj_r]**2*self._LQR_kernel(P_X_ii)
+
 			Kmat_diag[ii] = k_r
 
 		# print("@K(): Kmat_diag", Kmat_diag)

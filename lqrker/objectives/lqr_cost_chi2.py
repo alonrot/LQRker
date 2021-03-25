@@ -72,8 +72,9 @@ class LQRCostChiSquared(ObjectiveCostBase):
 				Q_des = tf.linalg.diag(X[ii,0:self.dim_state])
 				R_des = tf.linalg.diag(X[ii,self.dim_state::])
 			else:
-				Q_des = tf.linalg.diag(X[ii])
-				R_des = tf.constant([[1]])
+				Q_des_diag = tf.concat([X[ii],tf.ones(self.dim_state-1,dtype=X.dtype)],axis=0)
+				Q_des = tf.linalg.diag(Q_des_diag)
+				R_des = tf.linalg.eye(self.dim_control)
 
 			# pdb.set_trace()
 

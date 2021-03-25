@@ -35,8 +35,11 @@ class GPLQR(tf.keras.layers.Layer):
 
 		self.Nsys = 5
 
+		self.dim_state = cfg.RRTPLQRfeatures.dim_state
+		self.dim_control = cfg.RRTPLQRfeatures.dim_control
+
 		self.sigma_n = cfg.RRTPLQRfeatures.hyperpars.sigma_n.init
-		self.gen_linsys = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
+		self.gen_linsys = GenerateLinearSystems(dim_state=self.dim_state,
 												dim_control=cfg.RRTPLQRfeatures.dim_control,
 												Nsys=self.Nsys,
 												check_controllability=cfg.RRTPLQRfeatures.check_controllability,
@@ -47,12 +50,10 @@ class GPLQR(tf.keras.layers.Layer):
 
 		# Initialize kernel and mean functions:
 		# TODO: Here we might need need the transformed versions!!!
-		A_curr = self.A_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
-		B_curr = self.B_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
+		A_curr = self.A_samples[0,:,:].reshape(1,self.dim_state,self.dim_state)
+		B_curr = self.B_samples[0,:,:].reshape(1,self.dim_state,self.dim_control)
 		self.lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
 		self.lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
-
-		self.dim_state = cfg.RRTPLQRfeatures.dim_state
 
 		self.loss_class = LossElboLQR_MatrixNormalWishart(cfg,dim,Xtrain=None,Ytrain=None)
 
@@ -136,7 +137,7 @@ class GPLQR(tf.keras.layers.Layer):
 		for ii in range(self.Nsys):
 
 			A = self.A_samples[ii,:,:].reshape(1,self.dim_state,self.dim_state)
-			B = self.B_samples[ii,:,:].reshape(1,self.dim_state,self.dim_state)
+			B = self.B_samples[ii,:,:].reshape(1,self.dim_state,self.dim_control)
 			self.lqr_ker.update_system_samples_and_weights(A,B)
 			self.lqr_mean.update_system_samples_and_weights(A,B)
 

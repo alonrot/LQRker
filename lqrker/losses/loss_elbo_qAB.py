@@ -52,7 +52,7 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 
 		A_samples, B_samples = self.gen_linsys()
 		A = A_samples[0,:,:].reshape(1,self.dim_state,self.dim_state)
-		B = B_samples[0,:,:].reshape(1,self.dim_state,self.dim_state)
+		B = B_samples[0,:,:].reshape(1,self.dim_state,self.dim_control)
 
 		# TODO: Here we might need need the transformed versions!!!
 		self.lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
@@ -106,8 +106,6 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 
 		part1 = -tf.reduce_sum(self.log_v_q) + self.dim_state * tf.reduce_sum( tf.math.exp(self.log_v_q) / self.v_p )
 		part2 = tf.linalg.trace(tf.linalg.diag(1/self.v_p) @ tf.transpose(self.M_q) @ tf.linalg.cholesky_solve(tf.cast(Achol,dtype=tf.float32),self.M_q))
-
-		# pdb.set_trace()
 
 		return 0.5*(part1 + part2)
 
@@ -187,7 +185,7 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 		for ii in range(self.Nsys):
 
 			A = A_samples[ii,:,:].reshape(1,self.dim_state,self.dim_state)
-			B = B_samples[ii,:,:].reshape(1,self.dim_state,self.dim_state)
+			B = B_samples[ii,:,:].reshape(1,self.dim_state,self.dim_control)
 
 			self.lqr_ker.update_system_samples_and_weights(A,B)
 			self.lqr_mean.update_system_samples_and_weights(A,B)
