@@ -18,8 +18,6 @@ logger = get_logger(__name__)
 
 from lqrker.utils.generate_linear_systems import GenerateLinearSystems
 
-
-
 @hydra.main(config_path="../experiments/",config_name="config.yaml")
 def main(cfg: dict) -> None:
 	"""

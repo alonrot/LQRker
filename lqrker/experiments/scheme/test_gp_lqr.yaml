@@ -1,0 +1,26 @@
+# @package _global_
+RRTPLQRfeatures:
+  hyperpars:
+    weights_features:
+      Nfeat: 50
+    sigma_n:
+      init: 0.5
+  dim_state: 3
+  dim_control: 2
+  learning:
+    epochs: 200
+
+dataset:
+  # Input dimensionality:
+  dim: 1
+  xlims: "[-2,1]" # Limits of hypercube
+  Nevals: 20
+  with_noise: True
+  generate: # Generate a number of cost functions by randomly sampling the system matrices
+    use: False
+
+## Model validation
+validation:
+  perc_training: 100
+  Ncut: None
+  Nfuns: 1

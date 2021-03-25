@@ -30,6 +30,7 @@ class LQRkernel(gpflow.kernels.Kernel):
 
 
 		self.dim_state = cfg.dim_state
+		self.dim_control = cfg.dim_control
 		self.dim_in = dim
 
 		mu0 = eval(cfg.initial_state_distribution.mu0)
@@ -62,11 +63,12 @@ class LQRkernel(gpflow.kernels.Kernel):
 	def _get_Lyapunov_solution(self,theta_vec):
 
 		if self.dim_in > 1:
-			Q_des = tf.linalg.diag(X[0:self.dim_state])
-			R_des = tf.linalg.diag(X[self.dim_state::])
+			Q_des = tf.linalg.diag(theta_vec[0:self.dim_state])
+			R_des = tf.linalg.diag(theta_vec[self.dim_state::])
 		else:
-			Q_des = tf.linalg.diag(theta_vec)
-			R_des = tf.constant([[1]])
+			Q_des_diag =  tf.concat([theta_vec,tf.ones(self.dim_state-1,dtype=tf.float64)],axis=0)
+			Q_des = tf.linalg.diag(Q_des_diag)
+			R_des = tf.linalg.eye(self.dim_control)
 
 		P_list = []
 		for j in range(self.M):
@@ -213,7 +215,8 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 		Q_emp = eval(cfg.empirical_weights.Q_emp)
 		R_emp = eval(cfg.empirical_weights.R_emp)
 
-		self.dim_state = Q_emp.shape[0]
+		self.dim_state = cfg.dim_state
+		self.dim_control = cfg.dim_control
 		self.dim_in = dim
 
 		mu0 = eval(cfg.initial_state_distribution.mu0)
@@ -244,11 +247,12 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 	def _get_Lyapunov_solution(self,theta_vec):
 
 		if self.dim_in > 1:
-			Q_des = tf.linalg.diag(X[0:self.dim_state])
-			R_des = tf.linalg.diag(X[self.dim_state::])
+			Q_des = tf.linalg.diag(theta_vec[0:self.dim_state])
+			R_des = tf.linalg.diag(theta_vec[self.dim_state::])
 		else:
-			Q_des = tf.linalg.diag(theta_vec)
-			R_des = tf.constant([[1]])
+			Q_des_diag =  tf.concat([theta_vec,tf.ones(self.dim_state-1,dtype=tf.float64)],axis=0)
+			Q_des = tf.linalg.diag(Q_des_diag)
+			R_des = tf.linalg.eye(self.dim_control)
 
 		P_list = []
 		for j in range(self.M):
