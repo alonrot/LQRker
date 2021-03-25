@@ -35,24 +35,46 @@ class LossElboLQR(tf.keras.layers.Layer):
 		A_samples, B_samples = self.gen_linsys()
 		A = A_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
 		B = B_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
+
+		# TODO: Here we might need need the transformed versions!!!
 		lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
 		lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
+
+
+		XX = tf.cast(Xtrain,dtype=tf.float64)
+		YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
+		Npred = 40
+		xlim = eval(cfg.dataset.xlims)
+		xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
+
+
+		# lqr_ker = gpflow.kernels.Matern52()
+		mod = gpflow.models.GPR(data=(XX,YY), kernel=lqr_ker, mean_function=lqr_mean)
+		sigma_n = cfg.RRTPLQRfeatures.hyperpars.sigma_n.init
+		mod.likelihood.variance.assign(sigma_n**2)
+		xxpred = tf.cast(xpred,dtype=tf.float64)
+		# gpflow.utilities.print_summary(mod)
+		mean_pred_gpflow, cov_pred_gpflow = mod.predict_f(xxpred,full_cov=True)
+
+
 
 		# Compute necessary moments:
 		K_AB_inv_mean = 0
 		m_AB_times_K_AB_inv_mean = 0
 		for ii in range(Nsys):
 
-
 			K_AB = lqr_ker.K(Xtrain)
 			m_AB = lqr_mean(Xtrain)
+
+			# # mean_pred_gpflow, cov_pred_gpflow = mod.predict_f(xxpred,full_cov=True)
+			# m_AB, K_AB = mod.predict_f(xxpred,full_cov=True)
 
 			K_AB_inv_mean += tf.linalg.inv(K_AB)
 
 			m_AB_times_K_AB_inv_mean += tf.transpose(m_AB) @ K_AB_inv_mean
 
-			A = A_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
-			B = B_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
+			A = A_samples[ii,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
+			B = B_samples[ii,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
 			lqr_ker.update_system_samples_and_weights(A,B)
 			lqr_mean.update_system_samples_and_weights(A,B)
 
@@ -182,6 +204,7 @@ def main(cfg: dict) -> None:
 	# ll = loss_elbo_lqr()
 	# print("ll:",ll)
 
+
 	mean = loss_elbo_lqr.m
 	L = loss_elbo_lqr._make_lower_triangular()
 	Sigma = L @ tf.transpose(L)
@@ -189,6 +212,82 @@ def main(cfg: dict) -> None:
 	print("Sigma:",Sigma)
 	pdb.set_trace()
 
+
+	# # Use gpflow to do predictions:
+	# XX = tf.cast(Xtrain,dtype=tf.float64)
+	# YY = tf.cast(tf.reshape(Ytrain,(-1,1)),dtype=tf.float64)
+
+	# # Manipulate kernels:
+	# # ker_stat = gpflow.kernels.Matern52(lengthscales=2.0,variance=1.0)
+	# # ker_tot = lqr_ker * ker_stat # This works bad as the lengthscale affects
+	# # equally all regions of the space. Note that if we use this option, we must
+	# # switch off the Sigma(th,th') in kernel_gpflow.
+
+	# A_samples, B_samples = self.gen_linsys()
+	# A = A_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
+	# B = B_samples[0,:,:].reshape(1,cfg.RRTPLQRfeatures.dim_state,cfg.RRTPLQRfeatures.dim_state)
+	# lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
+	# lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
+
+
+
+	# gpflow.conditionals.base_conditional()
+
+	# f_mean_zero, f_var = gpflow.conditionals.base_conditional(	kmn,
+	# 															kmm + s,
+	# 															knn,
+	# 															err,
+	# 															full_cov=full_cov,
+	# 															white=False)
+
+
+
+ #        X_data, Y_data = self.data
+ #        err = Y_data - self.mean_function(X_data)
+
+ #        kmm = self.kernel(X_data)
+ #        knn = self.kernel(Xnew, full_cov=full_cov)
+ #        kmn = self.kernel(X_data, Xnew)
+
+ #        num_data = X_data.shape[0]
+ #        s = tf.linalg.diag(tf.fill([num_data], self.likelihood.variance))
+
+	# # lqr_ker = gpflow.kernels.Matern52()
+	# mod = gpflow.models.GPR(data=(XX,YY), kernel=lqr_ker, mean_function=lqr_mean)
+	# sigma_n = cfg.RRTPLQRfeatures.hyperpars.sigma_n.init
+	# mod.likelihood.variance.assign(sigma_n**2)
+	# xxpred = tf.cast(xpred,dtype=tf.float64)
+
+	# # opt = gpflow.optimizers.Scipy()
+	# # opt_logs = opt.minimize(mod.training_loss, mod.trainable_variables, options=dict(maxiter=300))
+
+	# # mod.kernel.lengthscales.assign(cfg.GaussianProcess.hyperpars.ls.init)
+	# # mod.kernel.variance.assign(cfg.GaussianProcess.hyperpars.prior_var.init)
+
+
+	# gpflow.utilities.print_summary(mod)
+	# mean_pred_gpflow, var_pred_gpflow = mod.predict_f(xxpred)
+
+	# mean_vec = mean_pred_gpflow
+	
+	# std_pred_gpflow = np.sqrt(var_pred_gpflow)
+	# fpred_quan_minus = mean_pred_gpflow - 2.*std_pred_gpflow
+	# fpred_quan_plus = mean_pred_gpflow + 2.*std_pred_gpflow
+
+
+	"""
+	TODO list
+	=========
+	NOTE: This is the posterior for the Gaussian process for f, with J = exp(f) and p(A,B) distributed as MNIW
+
+	0) Because we are doing inference in f, we need to (i) work with log(Ytrain) and (ii) use LQRkernelTransformed, LQRMeanTransformed.
+		0.1) Before doing this, check what's wrong in test_lqr_kernel_logGP_analysis.py
+	1) Re-derive all equations and possibly double-check with colleagues
+		1.1) Is it really ok to assume that q(f|A,B) = q(f) and just igonre all the q(A,B) aprt by assuming p(A,B) = q(A,B) ???
+	2) Double-check the implementation
+	3) Refactor into classes
+	4) Construct the LQR Gaussian process
+	"""
 
 
 if __name__ == "__main__":

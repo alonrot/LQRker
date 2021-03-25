@@ -2,7 +2,7 @@ import tensorflow as tf
 import pdb
 import matplotlib.pyplot as plt
 import numpy as np
-from lqrker.losses import LossKLDiv
+from lqrker.losses.loss_collection import LossKLDiv
 from lqrker.model_blr import BayesianLinearRegression, ModelFeatures
 from lqrker.solve_lqr import GenerateLQRData, SolveLQR
 

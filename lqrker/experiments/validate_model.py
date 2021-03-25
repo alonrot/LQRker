@@ -4,7 +4,7 @@ import math
 import matplotlib.pyplot as plt
 from lqrker.models.rrtp import RRTPLQRfeatures
 
-from lqrker.losses import LossStudentT, LossGaussian
+from lqrker.losses.loss_collection import LossStudentT, LossGaussian
 
 import gpflow
 import pickle

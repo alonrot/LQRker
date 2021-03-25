@@ -214,6 +214,9 @@ def main(cfg: dict) -> None:
 	come back to it if necessary.
 	4) Try the mixture of Gaussians. It's quite easy.
 
+	5) In test_elbo, LossElboLQR() class, we should use the transformed mean and kernel!!!
+	6) Same thing for thr new GPLQR (with the Gaussian Mixture Model)
+
 	"""
 
 

@@ -4,7 +4,7 @@ import math
 import matplotlib.pyplot as plt
 
 from lqrker.objectives.lqr_cost_chi2 import LQRCostChiSquared
-from lqrker.losses import LossStudentT, LossGaussian
+from lqrker.losses.loss_collection import LossStudentT, LossGaussian
 
 import gpflow
 import hydra

@@ -14,6 +14,7 @@ setup(
     packages=[	'lqrker',
     			'lqrker.models',
                 'lqrker.objectives',
-                'lqrker.utils'],
+                'lqrker.utils',
+                'lqrker.losses'],
     long_description=read('README.md'),
 )

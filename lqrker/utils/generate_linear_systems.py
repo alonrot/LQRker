@@ -27,6 +27,35 @@ class GenerateLinearSystems():
 
 		self.prior = prior
 
+		self.pars = dict()
+		
+		# Initialize parameters of matrix-normal inverse Wishart distribution:
+		self.pars["MN"] = 0
+		
+		# Initialize parameters of matrix-normal inverse Wishart distribution, p(A,B) = MNIW(.)
+		self.pars["MNIW"] = dict()
+
+		# Inverse Wishart: p(A) = IW(nu,Omega), where nu >= self.dim_state and Omega = diag(w_diag)
+		self.pars["MNIW"]["nu"] = self.dim_state + 1
+		self.pars["MNIW"]["w_diag"] = 0.5*np.ones(self.dim_state)
+
+		# Matrix normal: p(B|A) = MN(M,A,V), where M: [nx,nu] is the mean, A is a system matrix and V = diag(v_diag)
+		self.pars["MNIW"]["M"] = np.zeros((self.dim_state,self.dim_control))
+		self.pars["MNIW"]["v_diag"] = 2.0*np.ones(self.dim_control)
+
+
+	def update_parameters_matrix_normal_inverse_Wishart(self,M,v_diag,nu,w_diag):
+		
+		# Inverse Wishart parameters:
+		self.pars["MNIW"]["nu"] = nu
+		self.pars["MNIW"]["w_diag"] = w_diag
+
+		# Matrix normal parameters:
+		self.pars["MNIW"]["M"] = M
+		self.pars["MNIW"]["v_diag"] = v_diag
+
+		# pdb.set_trace()
+
 	def _sample_systems_MNIW(self,Nsamples):
 		"""
 
@@ -48,14 +77,22 @@ class GenerateLinearSystems():
 		# https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/WishartTriL
 
 
+		# Collect parameters:
+		df = self.pars["MNIW"]["nu"]
+		S0 = np.diag(self.pars["MNIW"]["w_diag"])
+
+		M = self.pars["MNIW"]["M"]
+		V = np.diag(self.pars["MNIW"]["v_diag"])
+
+
 		# Distribution over A, inverse Wishart:
-		S0 = 0.5*np.eye(self.dim_state)
-		df = self.dim_state + 1
+		# S0 = 0.5*np.eye(self.dim_state)
+		# df = self.dim_state + 1
 
 		# Distribution over B, matrix-normal distribution:
-		M = np.zeros((self.dim_state,self.dim_control))
+		# M = 
 		# U = np.eye(self.dim_state) -> A | rowcov
-		V = 2.0*np.eye(self.dim_control) # -> colcov
+		# V = 2.0*np.eye(self.dim_control) # -> colcov
 
 		A_samples = invwishart.rvs(df=df,scale=S0,size=Nsamples)
 		A_samples = np.reshape(A_samples,(Nsamples,self.dim_state,self.dim_state))
@@ -115,8 +152,6 @@ class GenerateLinearSystems():
 			return self._sample_systems_MNIW(self.Nsamples)
 		else:
 			ValueError("Wrong prior")
-
-
 
 if __name__ == "__main__":
 
