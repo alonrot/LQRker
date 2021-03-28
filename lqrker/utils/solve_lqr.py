@@ -20,7 +20,8 @@ class SolveLQR:
 	This class uses the control library python-control
 	https://python-control.readthedocs.io/en/0.9.0/
 
-	TODO: Find a way to have this library in tensorflow. Maybe reimplement the needed functions...
+	TODO: If (A,B) ever become trainable kernel hyperparameters, we might have to
+	rewrite the control.dare() method in Tensorflow.
 	"""
 
 	def __init__(self,Q_emp,R_emp,mu0,Sigma0):
@@ -52,11 +53,12 @@ class SolveLQR:
 		try:
 			P, eig, K = control.dare(A, B, Q_des, R_des)
 		except:
+			print("@SolveLQR - _get_controller()")
 			pdb.set_trace()
 
 		return K
 
-	def get_Lyapunov_solution(self, A, B, Q_des, R_des):
+	def get_Lyapunov_solution(self, A, B, Q_des, R_des, check_eigvals=False):
 		"""
 
 		We consider here an infinite horizon LQR with stochastic initial condition
@@ -68,16 +70,18 @@ class SolveLQR:
 		A_tilde = A + np.matmul(B,-K) # Flip sign of the controller, as we assume u = Kx
 
 		# TODO: This check will be eliminated in the future
-		eig = la.eigvals(A_tilde)
-		assert np.all(np.absolute(eig) <= 1.0), "The eigenvalues must be inside the unit circle"
+		if check_eigvals:
+			eig = la.eigvals(A_tilde)
+			assert np.all(np.absolute(eig) <= 1.0), "The eigenvalues must be inside the unit circle"
 
-		A_tilde_inv = np.linalg.inv(A_tilde)
-		Q_tilde = self.Q_emp + np.matmul(K.T,np.matmul(self.R_emp,K))
+		# Q_tilde = self.Q_emp + np.matmul(K.T,np.matmul(self.R_emp,K))
+		Q_tilde = self.Q_emp + K.T @ self.R_emp @ K
 
-		# Too large numbers in large dimensions:
-		A_syl = -A_tilde.T
-		B_syl = A_tilde_inv
-		Q_syl = np.matmul(Q_tilde,A_tilde_inv)
+		# # Too large numbers in large dimensions:
+		# A_tilde_inv = np.linalg.inv(A_tilde)
+		# A_syl = -A_tilde.T
+		# B_syl = A_tilde_inv
+		# Q_syl = np.matmul(Q_tilde,A_tilde_inv)
 
 
 		P = la.solve_discrete_lyapunov(A_tilde,Q_tilde)

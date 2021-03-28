@@ -29,6 +29,8 @@ def main(cfg: dict) -> None:
 	Use GPflow and a tailored kernel
 	"""
 
+	# tf.config.run_functions_eagerly(False)
+
 	my_seed = 1
 	np.random.seed(my_seed)
 	tf.random.set_seed(my_seed)
@@ -44,8 +46,6 @@ def main(cfg: dict) -> None:
 		dim = eval(cfg.dataset.dim)
 	else:
 		dim = cfg.dataset.dim
-
-
 
 	Npred = 50
 	xlim = eval(cfg.dataset.xlims)
@@ -69,6 +69,12 @@ def main(cfg: dict) -> None:
 	hdl_splots[0].plot(Xtrain,Ytrain,marker="o",color="black",linestyle="None")
 
 	plt.show(block=True)
+
+	"""
+
+	1) Double check the equations for ELBO
+	2) Eventually, implement the kernel with non-zero process noise and with finite time horizon!! (LQG!!) Look at Henning
+	"""
 
 
 

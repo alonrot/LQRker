@@ -8,7 +8,42 @@ from lqrker.utils.solve_lqr import SolveLQR
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
-class LQRkernel(gpflow.kernels.Kernel):
+class LQRmomentsCommon():
+	"""
+
+	Collection of methods that are common to both, LQRkernel and LQRmean.
+	"""
+
+	@staticmethod
+	def _get_Lyapunov_solution(theta_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
+
+		if dim_in > 1:
+			Q_des = tf.linalg.diag(theta_vec[0:dim_state])
+			R_des = tf.linalg.diag(theta_vec[dim_state::])
+		else:
+			Q_des_diag =  tf.concat([theta_vec,tf.ones(dim_state-1,dtype=tf.float64)],axis=0)
+			Q_des = tf.linalg.diag(Q_des_diag)
+			R_des = tf.linalg.eye(dim_control)
+
+		P_list = []
+		for j in range(M):
+			A = A_samples[j,:,:]
+			B = B_samples[j,:,:]
+			P_list.append( solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des) )
+
+		return P_list
+
+	@staticmethod
+	def _define_weights(M):
+		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
+		# pdb.set_trace()
+		# w = (1./tf.sqrt(1.*M))*tf.ones(M)
+		w = (1./M)*tf.ones(M)
+		# w = tf.ones(M)
+
+		return w
+
+class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 	"""
 
 	This is the LQR kernel for a LTI system, which LQR controller is parametrized
@@ -60,33 +95,6 @@ class LQRkernel(gpflow.kernels.Kernel):
 
 		return ker_val
 
-	def _get_Lyapunov_solution(self,theta_vec):
-
-		if self.dim_in > 1:
-			Q_des = tf.linalg.diag(theta_vec[0:self.dim_state])
-			R_des = tf.linalg.diag(theta_vec[self.dim_state::])
-		else:
-			Q_des_diag =  tf.concat([theta_vec,tf.ones(self.dim_state-1,dtype=tf.float64)],axis=0)
-			Q_des = tf.linalg.diag(Q_des_diag)
-			R_des = tf.linalg.eye(self.dim_control)
-
-		P_list = []
-		for j in range(self.M):
-			A = self.A_samples[j,:,:]
-			B = self.B_samples[j,:,:]
-			P_list.append( self.solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des) )
-
-		return P_list
-
-	def _define_weights(self,M):
-		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
-		# pdb.set_trace()
-		# w = (1./tf.sqrt(1.*M))*tf.ones(M)
-		w = (1./M)*tf.ones(M)
-		# w = tf.ones(M)
-
-		return w
-
 	def update_system_samples_and_weights(self,A_samples, B_samples):
 		self.A_samples = A_samples
 		self.B_samples = B_samples
@@ -121,8 +129,14 @@ class LQRkernel(gpflow.kernels.Kernel):
 		for ii in range(X.shape[0]):
 			for jj in range(X2.shape[0]):
 
-				P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
-				P_X_jj_list = self._get_Lyapunov_solution(X2[jj,:])
+				P_X_ii_list = self._get_Lyapunov_solution(X[ii,:],self.dim_in,self.dim_state,
+													self.dim_control,self.M,self.A_samples,
+													self.B_samples,self.solve_lqr)
+				P_X_jj_list = self._get_Lyapunov_solution(X2[jj,:],self.dim_in,self.dim_state,
+													self.dim_control,self.M,self.A_samples,
+													self.B_samples,self.solve_lqr)
+				# P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+				# P_X_jj_list = self._get_Lyapunov_solution(X2[jj,:])
 
 				Sigma0_dist = self.Sigma0_dist(X[ii,:],X2[jj,:])
 
@@ -178,7 +192,11 @@ class LQRkernel(gpflow.kernels.Kernel):
 
 		Kmat_diag = np.zeros(X.shape[0])
 		for ii in range(X.shape[0]):
-			P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+			# P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+			P_X_ii_list = self._get_Lyapunov_solution(X[ii,:],self.dim_in,self.dim_state,
+												self.dim_control,self.M,self.A_samples,
+												self.B_samples,self.solve_lqr)
+
 
 			k_r = 0
 			for sysj_r in range(self.M):
@@ -196,7 +214,7 @@ class LQRkernel(gpflow.kernels.Kernel):
 		return Kmat_diag
 
 
-class LQRMean(gpflow.mean_functions.MeanFunction):
+class LQRMean(gpflow.mean_functions.MeanFunction,LQRmomentsCommon):
 	"""
 
 	This is the expectation of the LQR cost for a LTI system, which LQR controller is parametrized
@@ -230,39 +248,12 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 
 		self.update_system_samples_and_weights(A_samples,B_samples)
 
-	def _define_weights(self,M):
-		# The GP predictions are sensitive to this. If self.w = (1./self.M)*tf.ones(self.M), the variance is too small. HOwever, if in the future we need to fix this (to have coherency in the theory), we can simply pump in prior variance and treat it as a hyperparameter.
-		# pdb.set_trace()
-		# w = (1./tf.sqrt(1.*M))*tf.ones(M)
-		w = (1./M)*tf.ones(M)
-		# w = tf.ones(M)
-
-		return w
-
 	def update_system_samples_and_weights(self,A_samples, B_samples):
 		self.A_samples = A_samples
 		self.B_samples = B_samples
 		self.M = self.A_samples.shape[0]
 		self.w = self._define_weights(self.M)
-
-	def _get_Lyapunov_solution(self,theta_vec):
-
-		if self.dim_in > 1:
-			Q_des = tf.linalg.diag(theta_vec[0:self.dim_state])
-			R_des = tf.linalg.diag(theta_vec[self.dim_state::])
-		else:
-			Q_des_diag =  tf.concat([theta_vec,tf.ones(self.dim_state-1,dtype=tf.float64)],axis=0)
-			Q_des = tf.linalg.diag(Q_des_diag)
-			R_des = tf.linalg.eye(self.dim_control)
-
-		P_list = []
-		for j in range(self.M):
-			A = self.A_samples[j,:,:]
-			B = self.B_samples[j,:,:]
-			P_list.append( self.solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des) )
-
-		return P_list
-
+	
 	def _mean_fun(self,SP):
 		"""
 
@@ -282,7 +273,10 @@ class LQRMean(gpflow.mean_functions.MeanFunction):
 		mean_vec = np.zeros((X.shape[0],1))
 		for ii in range(X.shape[0]):
 
-			P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+			# P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
+			P_X_ii_list = self._get_Lyapunov_solution(X[ii,:],self.dim_in,self.dim_state,
+												self.dim_control,self.M,self.A_samples,
+												self.B_samples,self.solve_lqr)
 
 			mean_r = 0
 			for sysj_r in range(self.M):

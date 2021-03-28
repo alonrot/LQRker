@@ -33,9 +33,11 @@ def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 	use_systems_from_cost = False
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
-														dim_control=cfg.RRTPLQRfeatures.dim_control,
-														Nsys=10,
-														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
+												dim_control=cfg.RRTPLQRfeatures.dim_control,
+												Nsys=2,
+												check_controllability=cfg.RRTPLQRfeatures.check_controllability,
+												prior="MNIW")
+
 		A, B = generate_linear_systems()
 
 	lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
@@ -92,9 +94,10 @@ def model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred):
 	use_systems_from_cost = False
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
-														dim_control=cfg.RRTPLQRfeatures.dim_control,
-														Nsys=10,
-														check_controllability=cfg.RRTPLQRfeatures.check_controllability)
+												dim_control=cfg.RRTPLQRfeatures.dim_control,
+												Nsys=2,
+												check_controllability=cfg.RRTPLQRfeatures.check_controllability,
+												prior="MNIW")
 		A, B = generate_linear_systems()
 
 	lqr_ker = LQRkernelTransformed(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A,B_samples=B)
@@ -205,16 +208,14 @@ def main(cfg: dict) -> None:
 
 	0) tests/test_lqr_kernel_logGP_analysis.py -> the Gram Matrix returns almost
 	the same values everywhere....
-	1) Change the system sampling by a normal-Wishart distribution (look at
-	Schon) and weight the kernel parameters accordingly. then, introduce
-	var_prior as an extra parameter to compensate.
+	1) Weight the sum of kernels using the normalized density values p(A_j,B_j)/(sum_j p(A_j,B_j))
+	Introduce var_prior as an extra parameter to compensate.
 	2) Try to make the parameters we have right now, i.e., l and var_prior
 	trainable. Consider doing ARD for Sigma0(th,th').
 	3) If we're not using cij, refactor the cost and maybe create a git tag to
 	come back to it if necessary.
-	4) Try the mixture of Gaussians. It's quite easy.
 
-	5) In test_elbo, LossElboLQR() class, we should use the transformed mean and kernel!!!
+	5) [Not needed] In test_elbo, LossElboLQR() class, we should use the transformed mean and kernel!!!
 	6) Same thing for thr new GPLQR (with the Gaussian Mixture Model)
 
 	"""

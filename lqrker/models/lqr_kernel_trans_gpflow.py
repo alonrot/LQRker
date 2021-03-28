@@ -91,6 +91,10 @@ class LQRkernelTransformed(gpflow.kernels.Kernel):
 
 		return Kvec
 
+	def update_system_samples_and_weights(self,A_samples, B_samples):
+		self.lqr_ker.update_system_samples_and_weights(A_samples,B_samples)
+		self.lqr_mean.update_system_samples_and_weights(A_samples,B_samples)
+
 
 class LQRMeanTransformed(gpflow.mean_functions.MeanFunction):
 	"""
@@ -115,6 +119,10 @@ class LQRMeanTransformed(gpflow.mean_functions.MeanFunction):
 	def __init__(self,cfg, dim, A_samples, B_samples):
 		self.lqr_ker = LQRkernel(cfg,dim,A_samples,B_samples)
 		self.lqr_mean = LQRMean(cfg,dim,A_samples,B_samples)
+
+	def update_system_samples_and_weights(self,A_samples, B_samples):
+		self.lqr_ker.update_system_samples_and_weights(A_samples,B_samples)
+		self.lqr_mean.update_system_samples_and_weights(A_samples,B_samples)
 
 	def __call__(self,X):
 

@@ -49,11 +49,14 @@ class GPLQR(tf.keras.layers.Layer):
 		self.A_samples, self.B_samples = self.gen_linsys()
 
 		# Initialize kernel and mean functions:
-		# TODO: Here we might need need the transformed versions!!!
 		A_curr = self.A_samples[0,:,:].reshape(1,self.dim_state,self.dim_state)
 		B_curr = self.B_samples[0,:,:].reshape(1,self.dim_state,self.dim_control)
-		self.lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
-		self.lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
+		
+		self.lqr_ker = LQRkernelTransformed(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
+		self.lqr_mean = LQRMeanTransformed(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
+
+		# self.lqr_ker = LQRkernel(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
+		# self.lqr_mean = LQRMean(cfg=cfg.RRTPLQRfeatures,dim=dim,A_samples=A_curr,B_samples=B_curr)
 
 		self.loss_class = LossElboLQR_MatrixNormalWishart(cfg,dim,Xtrain=None,Ytrain=None)
 

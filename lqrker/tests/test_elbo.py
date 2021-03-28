@@ -18,6 +18,11 @@ from lqrker.utils.generate_linear_systems import GenerateLinearSystems
 
 
 class LossElboLQR(tf.keras.layers.Layer):
+	"""
+	Not really needed
+	"""
+
+
 
 	def __init__(self,cfg,dim,Xtrain,Ytrain,**kwargs):
 

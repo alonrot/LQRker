@@ -63,7 +63,7 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 		self.log_v_q = self.add_weight(shape=(self.dim_control,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), trainable=True, name="log_v_q",dtype=tf.float32)
 		self.log_w_q = self.add_weight(shape=(self.dim_state,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), trainable=True, name="log_w_q",dtype=tf.float32)
 
-		# NOTE: log_nu_q_minus_dim_state = log(nu_q - dim_state)
+		# NOTE: log_nu_q_minus_dim_state = log(nu_q - (dim_state-1))
 		self.log_nu_q_minus_dim_state = self.add_weight(shape=(1,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), constraint=tf.keras.constraints.NonNeg(), trainable=True, name="log_nu_q_minus_dim_state",dtype=tf.float32)
 
 		# Prior parameters:
@@ -85,11 +85,11 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 		if get_dict:
 			var_pars = dict(M_q=self.M_q,
 							v_q=tf.math.exp(self.log_v_q),
-							nu_q=tf.math.exp(self.log_nu_q_minus_dim_state) + self.dim_state,
+							nu_q=tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1),
 							w_q=tf.math.exp(self.log_w_q))
 			return var_pars
 		else:
-			return self.M_q, tf.math.exp(self.log_v_q), tf.math.exp(self.log_nu_q_minus_dim_state) + self.dim_state, tf.math.exp(self.log_w_q)
+			return self.M_q, tf.math.exp(self.log_v_q), tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1), tf.math.exp(self.log_w_q)
 
 	def DKL_matrix_normal(self,A):
 		"""
@@ -98,7 +98,9 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 
 		Both, q and p are matrix-normal distributions.
 
-		We ignore all the terms that don't depend on the variational parameters
+		We ignore all the terms that don't depend on the variational parameters of q(A,B)
+
+		https://arxiv.org/abs/2102.05485
 
 		"""
 
@@ -116,11 +118,11 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 
 		Both, q and p are inverse Wishart distributions.
 
-		We ignore all the terms that don't depend on the variational parameters
+		We ignore all the terms that don't depend on the variational parameters of q(A,B)
 
 		"""
 
-		nu_q = tf.math.exp(self.log_nu_q_minus_dim_state) + self.dim_state
+		nu_q = tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1)
 		w_q = tf.exp(self.log_w_q)
 
 		gamma_arg = 0.5*nu_q + 0.5*(1 - tf.range(1,self.dim_state+1,dtype=tf.float32))
