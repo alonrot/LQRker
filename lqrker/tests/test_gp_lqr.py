@@ -72,8 +72,10 @@ def main(cfg: dict) -> None:
 
 	"""
 
-	1) Double check the equations for ELBO
+	1) Double-check the equations for ELBO
 	2) Eventually, implement the kernel with non-zero process noise and with finite time horizon!! (LQG!!) Look at Henning
+		2.1) It's quite hard to obtain it for N < infty and non-zero process noise. Instead, we caould aim for just non-zero process noise.
+	3) Look at the BO acquisition function: How does the GMM enter there?? Look at FITBO.
 	"""
 
 

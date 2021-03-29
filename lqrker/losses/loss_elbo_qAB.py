@@ -29,6 +29,9 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 	p(B|A) = MatrixNormal(Mp,A,Vp), where Mp = 0, Vp = diag(vp_1,vp_2,...,vp_nu)
 	p(A) = InverseWishart(nu_p,Omega_p), where nu_p >= nx, Omega_p = diag(wp_1,wp_2,...,wp_nx)
 
+	All the functions of this class where checked on:
+	30 March 2021
+
 	"""
 
 	def __init__(self,cfg,dim,Xtrain,Ytrain,**kwargs):
@@ -63,8 +66,10 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 		self.log_v_q = self.add_weight(shape=(self.dim_control,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), trainable=True, name="log_v_q",dtype=tf.float32)
 		self.log_w_q = self.add_weight(shape=(self.dim_state,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), trainable=True, name="log_w_q",dtype=tf.float32)
 
-		# NOTE: log_nu_q_minus_dim_state = log(nu_q - (dim_state-1))
-		self.log_nu_q_minus_dim_state = self.add_weight(shape=(1,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), constraint=tf.keras.constraints.NonNeg(), trainable=True, name="log_nu_q_minus_dim_state",dtype=tf.float32)
+		# NOTE [deprecated]: log_nu_q_minus_dim_state = log(nu_q - (dim_state-1))
+		# NOTE: log_nu_q_minus_dim_state = log(nu_q - dim_state)
+		# self.log_nu_q_minus_dim_state = self.add_weight(shape=(1,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), constraint=tf.keras.constraints.NonNeg(), trainable=True, name="log_nu_q_minus_dim_state",dtype=tf.float32)
+		self.log_nu_q_minus_dim_state = self.add_weight(shape=(1,), initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=1.0, seed=None), trainable=True, name="log_nu_q_minus_dim_state",dtype=tf.float32)
 
 		# Prior parameters:
 		self.v_p = tf.ones(self.dim_control,dtype=tf.float32)
@@ -85,11 +90,12 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 		if get_dict:
 			var_pars = dict(M_q=self.M_q,
 							v_q=tf.math.exp(self.log_v_q),
-							nu_q=tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1),
+							nu_q=tf.math.exp(self.log_nu_q_minus_dim_state) + self.dim_state,
+							# nu_q=tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1),
 							w_q=tf.math.exp(self.log_w_q))
 			return var_pars
 		else:
-			return self.M_q, tf.math.exp(self.log_v_q), tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1), tf.math.exp(self.log_w_q)
+			return self.M_q, tf.math.exp(self.log_v_q), tf.math.exp(self.log_nu_q_minus_dim_state) + self.dim_state, tf.math.exp(self.log_w_q)
 
 	def DKL_matrix_normal(self,A):
 		"""
@@ -120,18 +126,24 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 
 		We ignore all the terms that don't depend on the variational parameters of q(A,B)
 
+		https://www.mdpi.com/1099-4300/12/4/818/htm
+
 		"""
 
-		nu_q = tf.math.exp(self.log_nu_q_minus_dim_state) + (self.dim_state-1)
+		nu_q = tf.math.exp(self.log_nu_q_minus_dim_state) + self.dim_state
 		w_q = tf.exp(self.log_w_q)
 
+		# Input argument to the Digamma function:
+		digamma_arg = tf.math.digamma( 0.5*(nu_q - self.dim_state + tf.range(1,self.dim_state+1,dtype=tf.float32)) )
+
+		# The term -log( MVG(nu_q/2) ), where MVG is the multivariate Gamma of
+		# dimension self.dim_state, can be rewritten as a sum of Gammas. The
+		# constant term has been omitted:
 		gamma_arg = 0.5*nu_q + 0.5*(1 - tf.range(1,self.dim_state+1,dtype=tf.float32))
 		log_gamma = tf.math.lgamma(gamma_arg)
 
-		digamma_arg = tf.math.digamma( 0.5*(nu_q - self.dim_state + tf.range(1,self.dim_state+1,dtype=tf.float32)) )
-
 		part1 = -tf.reduce_sum(log_gamma) + 0.5*nu_q*tf.reduce_sum( self.w_p / w_q ) -0.5*self.dim_state*nu_q
-		part2 = -0.5*self.nu_p*( tf.reduce_sum(tf.math.log(self.w_p)) - tf.reduce_sum(self.log_w_q)) -0.5*(self.nu_p - nu_q) * tf.reduce_sum(digamma_arg)
+		part2 = 0.5*self.nu_p*tf.reduce_sum(self.log_w_q) -0.5*(self.nu_p - nu_q) * tf.reduce_sum(digamma_arg)
 
 		return part1 + part2
 
@@ -186,6 +198,8 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 		part2_avg = 0
 		for ii in range(self.Nsys):
 
+			# Get new system sample (A,B), update the LQR kernel and mean function with
+			# them, and compute self.log_evidence_given_AB():
 			A = A_samples[ii,:,:].reshape(1,self.dim_state,self.dim_state)
 			B = B_samples[ii,:,:].reshape(1,self.dim_state,self.dim_control)
 
@@ -195,8 +209,8 @@ class LossElboLQR_MatrixNormalWishart(tf.keras.layers.Layer):
 			part1 = self.log_evidence_given_AB()
 			part1_avg += part1
 
+			# Use new system sample A, to the KL divergence between the two MN distributions:
 			part2 = -self.DKL_matrix_normal(A_samples[ii,:,:])
-			# pdb.set_trace()
 			part2_avg += part2
 
 
