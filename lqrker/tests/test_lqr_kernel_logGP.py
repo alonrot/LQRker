@@ -30,11 +30,11 @@ def model_LQRcost_as_GP(cfg,X,Y,A,B,xpred):
 
 
 	# Generate new system samples for the kernel:
-	use_systems_from_cost = False
+	use_systems_from_cost = True
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
 												dim_control=cfg.RRTPLQRfeatures.dim_control,
-												Nsys=2,
+												Nsys=1,
 												check_controllability=cfg.RRTPLQRfeatures.check_controllability,
 												prior="MNIW")
 
@@ -95,7 +95,7 @@ def model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred):
 	if not use_systems_from_cost:
 		generate_linear_systems = GenerateLinearSystems(dim_state=cfg.RRTPLQRfeatures.dim_state,
 												dim_control=cfg.RRTPLQRfeatures.dim_control,
-												Nsys=2,
+												Nsys=1,
 												check_controllability=cfg.RRTPLQRfeatures.check_controllability,
 												prior="MNIW")
 		A, B = generate_linear_systems()
@@ -173,21 +173,21 @@ def main(cfg: dict) -> None:
 	X,Y,A,B = generate_dataset(cfg)
 
 	mean_vec, fpred_quan_minus, fpred_quan_plus, Xtrain, Ytrain = model_LQRcost_as_GP(cfg,X,Y,A,B,xpred)
-	mean_vec_logGP, fpred_quan_minus_logGP, fpred_quan_plus_logGP, Xtrain, Ytrain_logGP, entropy_vec = model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred)
+	# mean_vec_logGP, fpred_quan_minus_logGP, fpred_quan_plus_logGP, Xtrain, Ytrain_logGP, entropy_vec = model_LQRcost_as_logGP(cfg,X,Y,A,B,xpred)
 
 
 	hdl_fig, hdl_splots = plt.subplots(3,1,figsize=(14,10),sharex=True)
-	hdl_splots[0].plot(xpred,mean_vec_logGP)
-	hdl_splots[0].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus_logGP,(fpred_quan_plus_logGP)[::-1]],axis=0),\
-		alpha=.2, fc="blue", ec='None')
-	hdl_splots[0].set_title("logGP with LQR kernel. We do GP regression on f")
-	hdl_splots[0].set_xlabel("x")
-	hdl_splots[0].set_xlim(xpred[0,0],xpred[-1,0])
-	hdl_splots[0].plot(Xtrain,Ytrain_logGP,marker="o",color="black",linestyle="None")
+	# hdl_splots[0].plot(xpred,mean_vec_logGP)
+	# hdl_splots[0].fill(tf.concat([xpred, xpred[::-1]],axis=0),tf.concat([fpred_quan_minus_logGP,(fpred_quan_plus_logGP)[::-1]],axis=0),\
+	# 	alpha=.2, fc="blue", ec='None')
+	# hdl_splots[0].set_title("logGP with LQR kernel. We do GP regression on f")
+	# hdl_splots[0].set_xlabel("x")
+	# hdl_splots[0].set_xlim(xpred[0,0],xpred[-1,0])
+	# hdl_splots[0].plot(Xtrain,Ytrain_logGP,marker="o",color="black",linestyle="None")
 
-	hdl_splots[1].plot(xpred,entropy_vec)
-	hdl_splots[1].set_xlim(xpred[0,0],xpred[-1,0])
-	hdl_splots[1].set_title("Entropy of logGP")
+	# hdl_splots[1].plot(xpred,entropy_vec)
+	# hdl_splots[1].set_xlim(xpred[0,0],xpred[-1,0])
+	# hdl_splots[1].set_title("Entropy of logGP")
 
 
 	hdl_splots[2].plot(xpred,mean_vec)

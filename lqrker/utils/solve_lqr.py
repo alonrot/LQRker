@@ -58,6 +58,64 @@ class SolveLQR:
 
 		return K
 
+	def debug(self,A,Q,N):
+		"""
+		
+		Quadratic cost for LTI system, without process noise, finite time horizon
+		See [1] to see if we can incorporate the process noise.
+
+
+		[1] P. R. Kumar and P. Varaiya, Stochastic systems: Estimation, identification
+		and adaptive control. Prentice Hall, 1986
+
+		"""
+
+		AN = np.linalg.matrix_power(A, N)
+		Qlya = Q - AN.T @ Q @ AN
+
+		# AXA^T - X + Q = 0:
+		P = la.solve_discrete_lyapunov(A.T,Qlya)
+
+		return P
+
+
+	def get_stationary_covariance_between_two_systems(self, A, B, Q_des_th1, R_des_th1, Q_des_th2, R_des_th2, check_eigvals=False):
+
+		dim_state = A.shape[0]
+
+		K_th1 = self._get_controller(A, B, Q_des_th1, R_des_th1)
+		K_th2 = self._get_controller(A, B, Q_des_th2, R_des_th2)
+
+		Acl_th1 = A + np.matmul(B,-K_th1) # Flip sign of the controller, as we assume u = Kx
+		Acl_th2 = A + np.matmul(B,-K_th2) # Flip sign of the controller, as we assume u = Kx
+
+		V_noise = np.eye(dim_state)
+
+		# A1*X*A2^T - X + V = 0:
+		Sigma_xy_vec = -la.solve(np.kron(Acl_th2,Acl_th1) - np.eye(dim_state**2),V_noise.reshape(-1,1))
+
+		# A2*X*A1^T - X + V = 0:
+		Sigma_yx_vec = -la.solve(np.kron(Acl_th1,Acl_th2) - np.eye(dim_state**2),V_noise.reshape(-1,1))
+
+		return Sigma_xy_vec.reshape((dim_state,dim_state)), Sigma_yx_vec.reshape((dim_state,dim_state))
+
+	def get_stationary_variance(self, A, B, Q_des_th1, R_des_th1, check_eigvals=False):
+
+		dim_state = A.shape[0]
+
+		K_th1 = self._get_controller(A, B, Q_des_th1, R_des_th1)
+
+		Acl_th1 = A + np.matmul(B,-K_th1) # Flip sign of the controller, as we assume u = Kx
+
+		V_noise = np.eye(dim_state)
+
+		# A1*X*A2^T - X + V = 0:
+		Sigma_xx_vec = -la.solve(np.kron(Acl_th1,Acl_th1) - np.eye(dim_state**2),V_noise.reshape(-1,1))
+
+
+		return Sigma_xx_vec.reshape((dim_state,dim_state))
+
+
 	def get_Lyapunov_solution(self, A, B, Q_des, R_des, check_eigvals=False):
 		"""
 
@@ -83,10 +141,22 @@ class SolveLQR:
 		# B_syl = A_tilde_inv
 		# Q_syl = np.matmul(Q_tilde,A_tilde_inv)
 
+		# # AXA^T - X + Q = 0
+		# # print("This needs to be replaced with la.solve_discrete_lyapunov(A_tilde.T,Q_tilde)")
+		# P = la.solve_discrete_lyapunov(A_tilde,Q_tilde)
+		# return P
 
-		P = la.solve_discrete_lyapunov(A_tilde,Q_tilde)
+		# AXA^T - X + Q = 0
+		# print("This needs to be replaced with la.solve_discrete_lyapunov(A_tilde.T,Q_tilde)")
+		P_infty = la.solve_discrete_lyapunov(A_tilde.T,Q_tilde)
+		return P_infty
 
-		return P
+
+		# Pnew = self.debug(A_tilde,Q_tilde,100)
+		# print("P:",P)
+		# print("Pnew:",Pnew)
+		# pdb.set_trace()
+
 
 	def forward_simulation_with_random_initial_condition(self, A, B, Q_des, R_des, Nsamples=1):
 		"""

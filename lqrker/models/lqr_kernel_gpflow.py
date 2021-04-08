@@ -15,7 +15,7 @@ class LQRmomentsCommon():
 	"""
 
 	@staticmethod
-	def _get_Lyapunov_solution(theta_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
+	def _parse_theta_into_QR(theta_vec,dim_in,dim_state,dim_control):
 
 		if dim_in > 1:
 			Q_des = tf.linalg.diag(theta_vec[0:dim_state])
@@ -25,6 +25,13 @@ class LQRmomentsCommon():
 			Q_des = tf.linalg.diag(Q_des_diag)
 			R_des = tf.linalg.eye(dim_control)
 
+		return Q_des, R_des
+
+	@staticmethod
+	def _get_Lyapunov_solution(theta_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
+
+		Q_des, R_des = LQRmomentsCommon._parse_theta_into_QR(theta_vec,dim_in,dim_state,dim_control)
+
 		P_list = []
 		for j in range(M):
 			A = A_samples[j,:,:]
@@ -32,6 +39,39 @@ class LQRmomentsCommon():
 			P_list.append( solve_lqr.get_Lyapunov_solution(A, B, Q_des, R_des) )
 
 		return P_list
+
+	
+
+	@staticmethod
+	def _get_stationary_system_cross_variance(th1_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
+
+		Q_des_th1, R_des_th1 = LQRmomentsCommon._parse_theta_into_QR(th1_vec,dim_in,dim_state,dim_control)
+
+		Sigma_xx_list = []
+		for j in range(M):
+			A = A_samples[j,:,:]
+			B = B_samples[j,:,:]
+			Sigma_xx = solve_lqr.get_stationary_variance(A,B,Q_des_th1,R_des_th1)
+			Sigma_xx_list.append(Sigma_xx)
+
+		return Sigma_xx_list
+
+	@staticmethod
+	def _get_stationary_system_cross_covariance(th1_vec,th2_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
+
+		Q_des_th1, R_des_th1 = LQRmomentsCommon._parse_theta_into_QR(th1_vec,dim_in,dim_state,dim_control)
+		Q_des_th2, R_des_th2 = LQRmomentsCommon._parse_theta_into_QR(th2_vec,dim_in,dim_state,dim_control)
+
+		Sigma_xy_list = []
+		Sigma_yx_list = []
+		for j in range(M):
+			A = A_samples[j,:,:]
+			B = B_samples[j,:,:]
+			Sigma_xy, Sigma_yx = solve_lqr.get_stationary_covariance_between_two_systems(A,B,Q_des_th1,R_des_th1,Q_des_th2,R_des_th2)
+			Sigma_xy_list.append(Sigma_xy)
+			Sigma_yx_list.append(Sigma_yx)
+
+		return Sigma_xy_list, Sigma_yx_list
 
 	@staticmethod
 	def _define_weights(M):
@@ -88,10 +128,17 @@ class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 
 	def _LQR_kernel(self,SP1,SP2=None):
 
+		# if SP2 is None:
+		# 	ker_val = np.trace(SP1)**2 + 2.0*np.trace(np.linalg.matrix_power(SP1,2))
+		# else:
+		# 	ker_val = np.trace(SP1) * np.trace(SP2) + 2.0*np.trace(SP1 @ SP2)
+
+		# return ker_val
+
 		if SP2 is None:
-			ker_val = np.trace(SP1)**2 + 2.0*np.trace(np.linalg.matrix_power(SP1,2))
+			ker_val = np.trace(np.linalg.matrix_power(SP1,2))
 		else:
-			ker_val = np.trace(SP1) * np.trace(SP2) + 2.0*np.trace(SP1 @ SP2)
+			ker_val = np.trace(SP1 @ SP2)
 
 		return ker_val
 
@@ -122,6 +169,11 @@ class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 		# Incorporate distance in the Sigma itself (experimental):
 		# Sigma0_dist(self.Sigma0,X[ii,:],X2[jj,:])
 
+		# assert self.M == 1, "We're not using right now the linear combination of costs"
+		# if self.M != 1:
+		# 	pdb.set_trace()
+
+
 		if X2 is None:
 			X2 = X
 		
@@ -135,19 +187,29 @@ class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 				P_X_jj_list = self._get_Lyapunov_solution(X2[jj,:],self.dim_in,self.dim_state,
 													self.dim_control,self.M,self.A_samples,
 													self.B_samples,self.solve_lqr)
+				
 				# P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
 				# P_X_jj_list = self._get_Lyapunov_solution(X2[jj,:])
 
-				Sigma0_dist = self.Sigma0_dist(X[ii,:],X2[jj,:])
+				# print("This needs to be replaced with Sigma_infty^xx")
+				# Sigma0_dist = self.Sigma0_dist(X[ii,:],X2[jj,:])
+
+				Sigma_xy_list, Sigma_yx_list = self._get_stationary_system_cross_covariance(X[ii,:],X2[jj,:],self.dim_in,self.dim_state,
+													self.dim_control,self.M,self.A_samples,
+													self.B_samples,self.solve_lqr)
 
 				k_rc = 0
 				for sysj_r in range(self.M):
 					for sysj_c in range(sysj_r,self.M):
 
-						P_X_ii = Sigma0_dist @ P_X_ii_list[sysj_r]
-						P_X_jj = Sigma0_dist @ P_X_jj_list[sysj_c]
+						# P_X_ii = Sigma0_dist @ P_X_ii_list[sysj_r]
+						# P_X_jj = Sigma0_dist @ P_X_jj_list[sysj_c]
+
+						P_X_ii = P_X_ii_list[sysj_r] @ Sigma_xy_list[sysj_r]
+						P_X_jj = P_X_jj_list[sysj_c] @ Sigma_yx_list[sysj_c]
 
 						if sysj_r == sysj_c:
+							# k_rc += self.w[sysj_c]**2 * self._LQR_kernel(P_X_ii,P_X_jj)
 							k_rc += self.w[sysj_c]**2 * self._LQR_kernel(P_X_ii,P_X_jj)
 						else:
 							pass # [DBG]: Trying to see what happens if we just do a linear combination of kernels
@@ -190,6 +252,11 @@ class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 		Kmat: [Npoints,]
 		"""
 
+		# assert self.M == 1, "We're not using right now the linear combination of costs"
+		# if self.M != 1:
+		# 	pdb.set_trace()
+
+
 		Kmat_diag = np.zeros(X.shape[0])
 		for ii in range(X.shape[0]):
 			# P_X_ii_list = self._get_Lyapunov_solution(X[ii,:])
@@ -197,10 +264,15 @@ class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 												self.dim_control,self.M,self.A_samples,
 												self.B_samples,self.solve_lqr)
 
+			Sigma_xx_list = self._get_stationary_system_cross_variance(X[ii,:],self.dim_in,self.dim_state,
+												self.dim_control,self.M,self.A_samples,
+												self.B_samples,self.solve_lqr)
+
 
 			k_r = 0
 			for sysj_r in range(self.M):
-				P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
+				# P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
+				P_X_ii = P_X_ii_list[sysj_r] @ Sigma_xx_list[sysj_r]
 				k_r += self.w[sysj_r]**2*self._LQR_kernel(P_X_ii)
 
 			Kmat_diag[ii] = k_r
@@ -270,6 +342,11 @@ class LQRMean(gpflow.mean_functions.MeanFunction,LQRmomentsCommon):
 		return: [Npoints,1]
 		"""
 
+		# assert self.M == 1, "We're not using right now the linear combination of costs"
+		# if self.M != 1:
+		# 	pdb.set_trace()
+
+
 		mean_vec = np.zeros((X.shape[0],1))
 		for ii in range(X.shape[0]):
 
@@ -278,9 +355,15 @@ class LQRMean(gpflow.mean_functions.MeanFunction,LQRmomentsCommon):
 												self.dim_control,self.M,self.A_samples,
 												self.B_samples,self.solve_lqr)
 
+			Sigma_xx_list = self._get_stationary_system_cross_variance(X[ii,:],self.dim_in,self.dim_state,
+												self.dim_control,self.M,self.A_samples,
+												self.B_samples,self.solve_lqr)
+
+
 			mean_r = 0
 			for sysj_r in range(self.M):
-				P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
+				# P_X_ii = self.Sigma0 @ P_X_ii_list[sysj_r]
+				P_X_ii = P_X_ii_list[sysj_r] @ Sigma_xx_list[sysj_r]
 				mean_r += self.w[sysj_r]*self._mean_fun(P_X_ii)
 			mean_vec[ii,0] = mean_r
 
