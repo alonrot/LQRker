@@ -6,10 +6,25 @@ from abc import ABC, abstractmethod
 # import tensorflow.experimental.numpy as tnp # https://www.tensorflow.org/guide/tf_numpy
 
 import numpy as np
-from lqrker.objectives.lqr_cost_chi2 import LQRCostChiSquared
+# from lqrker.objectives.lqr_cost_chi2 import LQRCostChiSquared
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
+from lqrker.utils.spectral_densities import MaternSpectralDensity, CartPoleSpectralDensity
 logger = get_logger(__name__)
+
+
+"""
+Refactor:
+
+1) Make the self.log_diag_vals sub-class dependent. For Sarkka features we have one thing,
+for Random F.F we have another thing
+2) Study in rrblr.py the effect of an uncentered x in the domain. Also, study what happens if we use
+random eigenvalues, or if we let the j's be picked randomly or inferred from data. If that doesn't improve the
+predictions, it could be that the system dynamics are not anywhere close to a Matern process...?
+3) Try to derive the kernel following Sarkka's approach for the inverted pendulum equations, by linearizing
+"""
+
+
 
 class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	"""
@@ -46,12 +61,12 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		self.dim = dim
 		assert cfg.hyperpars.nu > 2, "Requirement: nu > 2"
-		self.nu = cfg.hyperpars.nu
+		self.nu = cfg.hyperpars.nu # Related to t-Student's distribution
 		Nfeat = cfg.hyperpars.weights_features.Nfeat
 		sigma_n_init = cfg.hyperpars.sigma_n.init
 
 		# Specify weights:
-		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
+		# self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
 		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(sigma_n_init)), trainable=True,name="log_noise_std")
 
 		# Learning parameters:
@@ -70,13 +85,23 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		https://en.wikipedia.org/wiki/Rectifier_(neural_networks)#Softplus
 		"""
 
-		return tf.exp(2.0*self.log_noise_std)
+		ret = tf.exp(2.0*self.log_noise_std)
 
+		# if tf.math.reduce_any(tf.math.is_nan(ret)):
+		# 	pdb.set_trace()
+
+		return ret
+
+	@abstractmethod
 	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
+		"""
+		X: None
+		return: None
+		"""
+		raise NotImplementedError
 
 	def get_logdetSigma_weights(self):
-		return tf.reduce_sum(self.log_diag_vals)
+		raise NotImplementedError
 
 	def get_MLII_loss_gaussian(self):
 		"""
@@ -118,10 +143,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		try:
 			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
 		except Exception as inst:
-			# logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			# logger.info("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
+			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
+			logger.info("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
 
-			# logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
+			logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
 			# min_eigval_posi = self.fix_eigvals(self.PhiX)
 			Kmat = self.fix_eigvals(Kmat)
 			# return 10*min_eigval_posi
@@ -134,6 +159,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			# return tf.constant([[float("Inf")]])
 
 		# Compute Ky_inv:
+		# pdb.set_trace()
 		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
 
 		# Compute data fit:
@@ -149,6 +175,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		loss_val = -data_fit - model_complexity
 
+		# pdb.set_trace()
 		# if tf.math.is_nan(loss_val):
 		# 	pdb.set_trace()
 		# 	return tf.constant([[float("Inf")]])
@@ -192,7 +219,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		if done == True:
 			logger.info("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
 
-		# logger.info(self.trainable_weights[0][0:10])
+		# logger.info(self.trainable_weights[0])
 		# logger.info(self.trainable_weights[1])
 
 	def update_model(self,X,Y):
@@ -214,7 +241,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	def _update_features(self):
 		"""
 
-		Compute some relevant quantities that will be alter used for prediction:
+		Compute some relevant quantities that will be later used for prediction:
 		PhiX, 
 		"""
 
@@ -244,8 +271,12 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			min_eigval_posi = 1.1*min_eigval_posi
 
 			# Add such eigenvalue as jitter:
-			self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
-			Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
+			if hasattr(self, 'log_diag_vals'):
+				self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
+				Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
+			else:
+				logger.info("Fixture only implemented for child classes where log_diag_vals is used.")
+				logger.info("For other classes, this fuxture needs to be implemented...")
 
 			logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
 			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
@@ -266,8 +297,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		Among the negative eigenvalues, get the 'most negative one'
 		and return it with flipped sign
 		"""
-
-		
 
 		eigvals, eigvect = tf.linalg.eigh(Kmat)
 
@@ -420,13 +449,121 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		logger.info("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
 		pass
 
+class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
+	"""
+	
+	TODO:
+	1) Maybe sample just a single vector, like in the jmlr paper
+	2) Think about optimizing weights somehow. Prior on spectral density with model?
+	3) Add other hyperparameters as trainable variables to the optimization
+	4) Refactor all this in different files
+	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
+	"""
+
+	def __init__(self, dim: int, cfg: dict, spectral_density=None):
+
+		super().__init__(dim,cfg)
+
+		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
+
+		# Spectral density to be used:
+		if spectral_density is None:
+			# self.spectral_density = MaternSpectralDensity(cfg.spectral_density,dim)
+			self.spectral_density = CartPoleSpectralDensity(cfg.spectral_density_pars)
+		else:
+			self.spectral_density = spectral_density
+
+	def update_spectral_density(self,args,state_ind):
+
+		self.spectral_density.update_pars(args)
+
+		# Sample from the density:
+		# Nsamples = int(self.Nfeat * self.dim)
+		W_samples_vec = self.spectral_density.get_samples(self.Nfeat,state_ind) # [Nsamples,1,dim]
+		# pdb.set_trace()
+		self.W_samples = tf.reshape(W_samples_vec,(self.Nfeat,self.dim))
+		self.u_samples = tfp.distributions.Uniform(low=0.0, high=2.*math.pi).sample(sample_shape=(1,self.Nfeat))
+
+	def get_features_mat(self,X):
+		"""
+
+		X: [Npoints, dim]
+		return: PhiX: [Npoints, Nfeat]
+		"""
+
+		WX = tf.transpose(self.W_samples @ tf.transpose(X)) # [Npoints, Nfeat]
+		return tf.math.cos(WX + self.u_samples)
+		
+	def get_Sigma_weights_inv_times_noise_var(self):
+		return self.get_noise_var() * tf.eye(self.Nfeat)
+
+	def get_logdetSigma_weights(self):
+		return 0.0
+
+
+class RRTPSarkkaFeatures(ReducedRankStudentTProcessBase):
+
+	def __init__(self, dim: int, cfg: dict):
+
+		super().__init__(dim,cfg)
+
+		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
+		self.L = cfg.hyperpars.L
+		self.jj = tf.reshape(tf.range(1,self.Nfeat+1,dtype=tf.float32),(-1,1,1)) # [Nfeat, 1, 1]
+
+		# Spectral density to be used:
+		self.spectral_density = MaternSpectralDensity(cfg.spectral_density,dim)
+
+	def _get_eigenvalues(self):
+		"""
+
+		Eigenvalues of the laplace operator
+		"""
+
+		Lstack = tf.stack([self.L]*self.Nfeat) # [Nfeat, dim]
+		jj = tf.reshape(tf.range(1,self.Nfeat+1,dtype=tf.float32),(-1,1)) # [Nfeat, 1]
+		# pdb.set_trace()
+		Ljj = (math.pi * jj / (2.*Lstack))**2 # [Nfeat, dim]
+
+		return tf.reduce_sum(Ljj,axis=1) # [Nfeat,]
+
+	def get_features_mat(self,X):
+		"""
+
+		X: [Npoints, dim]
+		return: PhiX: [Npoints, Nfeat]
+		"""
+		
+		xx = tf.stack([X]*self.Nfeat) # [Nfeat, Npoints, dim]
+		# jj = tf.reshape(tf.range(self.Nfeat,dtype=tf.float32),(-1,1,1)) # [Nfeat, 1, 1]
+		# pdb.set_trace()
+		feat = 1/tf.sqrt(self.L) * tf.sin( math.pi*self.jj*(xx + self.L)/(2.*self.L) ) # [Nfeat, Npoints, dim]
+		return tf.transpose(tf.reduce_prod(feat,axis=-1)) # [Npoints, Nfeat]
+
+	def get_Sigma_weights_inv_times_noise_var(self):
+		omega_in = tf.sqrt(self._get_eigenvalues())
+		S_vec = self.spectral_density.unnormalized_density(omega_in)
+		ret = self.get_noise_var() * tf.linalg.diag(1./S_vec)
+
+		# if tf.math.reduce_any(tf.math.is_nan(ret)):
+		# 	pdb.set_trace()
+
+		return ret
+
+	def get_logdetSigma_weights(self):
+		omega_in = tf.sqrt(self._get_eigenvalues())
+		S_vec = self.spectral_density.unnormalized_density(omega_in)
+		return tf.reduce_sum(tf.math.log(S_vec))
 
 class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 
 	def __init__(self, dim: int, cfg: dict):
 
-		assert dim <= 2
 		super().__init__(dim,cfg)
+
+		# Elements of the diagonal matrix Lambda:
+		# TODO: Test the line below
+		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
 
 	def get_features_mat(self,X):
 		"""
@@ -439,13 +576,24 @@ class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 
 		if self.dim == 1:
 			PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , X**2 ],axis=1)
-		elif self.dim == 2:
-			PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , SQRT2*tf.math.reduce_prod(X,axis=1,keepdims=True) , X**2 ],axis=1)
 		else:
-			raise NotImplementedError
+			PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , SQRT2*tf.math.reduce_prod(X,axis=1,keepdims=True) , X**2 ],axis=1)
+
+		assert cfg.weights_features.Nfeat == PhiX.shape[1], "Basically, for quadratic features the number of features is given a priori; the user cannot choose"
 
 		return PhiX # [Npoints, Nfeat]
 
+	def get_Sigma_weights_inv_times_noise_var(self):
+		"""
+		The Lambda matrix depends on the choice of features
+
+		TODO: Test this function
+		"""
+		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
+
+	def get_logdetSigma_weights(self):
+		# TODO: Test this function
+		return tf.reduce_sum(self.log_diag_vals)
 
 class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 
@@ -456,6 +604,8 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 		nu = cfg.hyperpars.nu
 		Nsys = cfg.hyperpars.weights_features.Nfeat # Use as many systems as number of features
 
+		# TODO: Test the line below
+		self.log_diag_vals = self.add_weight(shape=(Nsys,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
 
 		self.lqr_cost = LQRCostChiSquared(dim_in=dim,cfg=cfg,Nsys=Nsys)
 		print("Make sure we're NOT using noise in the config file...")
@@ -471,5 +621,11 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 
 		return cost_values_all
 
+	def get_Sigma_weights_inv_times_noise_var(self):
+		# TODO: Test this function
+		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
 
+	def get_logdetSigma_weights(self):
+		# TODO: Test this function
+		return tf.reduce_sum(self.log_diag_vals)
 

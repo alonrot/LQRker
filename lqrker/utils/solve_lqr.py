@@ -90,12 +90,15 @@ class SolveLQR:
 		Acl_th2 = A + np.matmul(B,-K_th2) # Flip sign of the controller, as we assume u = Kx
 
 		V_noise = np.eye(dim_state)
+		# V_noise = 0.01*np.eye(dim_state)
 
 		# A1*X*A2^T - X + V = 0:
 		Sigma_xy_vec = -la.solve(np.kron(Acl_th2,Acl_th1) - np.eye(dim_state**2),V_noise.reshape(-1,1))
 
 		# A2*X*A1^T - X + V = 0:
 		Sigma_yx_vec = -la.solve(np.kron(Acl_th1,Acl_th2) - np.eye(dim_state**2),V_noise.reshape(-1,1))
+
+		# pdb.set_trace()
 
 		return Sigma_xy_vec.reshape((dim_state,dim_state)), Sigma_yx_vec.reshape((dim_state,dim_state))
 
@@ -108,6 +111,8 @@ class SolveLQR:
 		Acl_th1 = A + np.matmul(B,-K_th1) # Flip sign of the controller, as we assume u = Kx
 
 		V_noise = np.eye(dim_state)
+		# V_noise = 0.01*np.eye(dim_state)
+
 
 		# A1*X*A2^T - X + V = 0:
 		Sigma_xx_vec = -la.solve(np.kron(Acl_th1,Acl_th1) - np.eye(dim_state**2),V_noise.reshape(-1,1))
@@ -171,6 +176,9 @@ class SolveLQR:
 		distribution of a linear combination of independent chi-squared random
 		variates.
 
+		NOTE: We are considering here LQR, not LQG. Therefore, the process noise is
+		ignored.
+
 		return: [Nsamples,]
 		"""
 
@@ -180,6 +188,8 @@ class SolveLQR:
 
 		# Get cost samples:
 		Jsamples = np.diag(x0_vec @ P @ x0_vec.T)
+
+		# pdb.set_trace()
 
 		return Jsamples
 		
@@ -191,6 +201,9 @@ class SolveLQR:
 		Because we are considering a LTI system with infinite horizon, a forward
 		simulation of the dynamics can be emulated by simply solving the Lyapunov
 		equation.
+
+		NOTE: We are considering here LQR, not LQG. Therefore, the process noise is
+		ignored.
 
 		return: [Nsamples,]
 		"""

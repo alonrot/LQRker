@@ -4,6 +4,8 @@ import math
 # import numpy as np
 # import tensorflow.experimental.numpy as tnp # https://www.tensorflow.org/guide/tf_numpy
 
+import tensorflow_probability as tfp
+
 class ReducedRankBayesianLinearRegression:
 	"""
 	"""
@@ -52,14 +54,19 @@ class ReducedRankBayesianLinearRegression:
 
 		# Using now the N-dimensional formulation from Rasmussen
 
-		p = 3
+		# Tunable parameters:
+		p = 2
 		nu = p + 0.5
-		ls = 0.5
-		lambda_val = tf.sqrt(2*nu)/ls
+		ls = 0.1
+		prior_var = 10.0
 
+		lambda_val = tf.sqrt(2*nu)/ls
 		# S_vec = ((2*tf.sqrt(math.pi)*tf.exp(tf.math.lgamma(nu+0.5))) / (tf.exp(tf.math.lgamma(nu)))) * lambda_val**(2*nu)/((lambda_val**2 + omega_in**2)**(nu+0.5))
 		const = ((2*tf.sqrt(math.pi))**self.dim)*tf.exp(tf.math.lgamma(nu+0.5*self.dim))*lambda_val**(2*nu) / tf.exp(tf.math.lgamma(nu))
 		S_vec = const / ((lambda_val**2 + omega_in**2)**(nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
+
+		# Pump variance into it:
+		S_vec = S_vec*prior_var
 
 		# print("S_vec:",S_vec)
 
@@ -94,7 +101,16 @@ class ReducedRankBayesianLinearRegression:
 		Lambda_inv_times_noise_var = tf.linalg.diag( self.sigma2_n * 1./self.spectral_density(tf.sqrt(self.eigvals)) ) # original
 		# Lambda_inv_times_noise_var = self.sigma2_n*tf.eye(self.Nfeat) # [DBG] qudratic features
 		
-		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Lambda_inv_times_noise_var ) # Lower triangular
+		self.Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + Lambda_inv_times_noise_var ) # Lower triangular L.L^T
+
+		self.PhiXY = tf.transpose(self.PhiX) @ self.Y
+
+
+		# Distribution over the weigths th, such that: th_i ~ N(Ainv @ PhiXT @ Y , sigma2_n*Ainv ), for i=[1,..,n_samples]
+		# To be used in
+		self.mean_th_post = tf.linalg.cholesky_solve(self.Lchol, self.PhiXY)
+		self.chol_cov_th_post = tf.math.sqrt(self.sigma2_n) * tf.transpose(tf.linalg.inv(self.Lchol))
+
 
 	def _get_eigenvalues(self):
 		"""
@@ -104,6 +120,7 @@ class ReducedRankBayesianLinearRegression:
 
 		Lstack = tf.stack([self.L]*self.Nfeat) # [Nfeat, dim]
 		jj = tf.reshape(tf.range(1,self.Nfeat+1,dtype=tf.float32),(-1,1)) # [Nfeat, 1]
+		# pdb.set_trace()
 		Ljj = (math.pi * jj / (2.*Lstack))**2 # [Nfeat, dim]
 
 		return tf.reduce_sum(Ljj,axis=1) # [Nfeat,]
@@ -222,7 +239,7 @@ class ReducedRankBayesianLinearRegression:
 		Phi_pred = self.get_features_mat_grad(xpred)
 		
 		# Get mean:
-		PhiXY = tf.transpose(self.PhiX) @ self.Y
+		
 		mean_pred = Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, PhiXY) # In the Sarkka paper Phi_pred is transposed, but it should be wrong...
 
 		# Get covariance:
@@ -264,8 +281,7 @@ class ReducedRankBayesianLinearRegression:
 		Phi_pred = self.get_features_mat(xpred)
 		
 		# Get mean:
-		PhiXY = tf.transpose(self.PhiX) @ self.Y
-		mean_pred = Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, PhiXY) # In the Sarkka paper Phi_pred is transposed, but it should be wrong...
+		mean_pred = Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, self.PhiXY) # In the Sarkka paper Phi_pred is transposed, but it should be wrong...
 
 		# Get covariance:
 		cov_pred = self.sigma2_n * Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(Phi_pred))
@@ -274,5 +290,38 @@ class ReducedRankBayesianLinearRegression:
 		return tf.squeeze(mean_pred), cov_pred
 
 
+	def sample_from_predictive(self,xpred,n_samples):
+		"""
 
+		NOTE: This is rather inefficient. Use self.get_posterior_weights_samples_for_callable_from_predictive()
+
+		"""
+		
+		mean, cov = self.get_predictive_moments(xpred)
+
+		mvn = tfp.distributions.MultivariateNormalTriL(loc=mean,scale_tril=tf.linalg.cholesky(cov))
+
+		samples = mvn.sample(sample_shape=(n_samples))
+
+		return samples
+
+
+
+	def get_posterior_weights_samples_for_callable_from_predictive(self,n_samples):
+		"""
+
+		Return samples th_i ~ N(Ainv @ PhiXT @ Y , sigma2_n*Ainv ), for i=[1,..,n_samples]
+
+		Then, a callabale can be constructed as f(x) ~= phi(x)^T @ th_t
+
+		"""
+
+		th_samples = self.mean_th_post + self.chol_cov_th_post @ tf.random.normal(shape=(self.mean_th_post.shape[0],n_samples))
+
+		# # Perturb e.g. the mean slightly; the predictive power gets completely lost. It seems tha this solution is powerful, but very non-robust and prone to unstability
+		# th_samples = self.mean_th_post + 1e-2*tf.ones(self.mean_th_post.shape) + self.chol_cov_th_post @ tf.random.normal(shape=(self.mean_th_post.shape[0],n_samples))
+		# So, it seems that there's an optimal distribution of weights th_i ~ N(m,V) that make the model predict with accuracy, while with any other comnation of m and V,
+		# we'd lose all predictive power.
+
+		return th_samples
 

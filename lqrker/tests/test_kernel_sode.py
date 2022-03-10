@@ -158,8 +158,6 @@ if __name__ == "__main__":
 	def SEker(tau): # Scalar case
 		return 2.0*np.exp(-np.abs(tau)**2/(0.2)**2)
 
-
-
 	mean_post, std_post = get_posterior(SEker,x_simu,t_simu,t_pred)
 
 	# Plot data and prediction:

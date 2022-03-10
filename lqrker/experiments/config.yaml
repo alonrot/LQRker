@@ -9,8 +9,8 @@ hydra:
 defaults:
   - hydra/job_logging : disabled # Completely deactivate the hydra logging.
   - config: LQRfeatures
-  # - scheme: one_dim
-  - scheme: test_gp_lqr
+  - scheme: one_dim
+  # - scheme: test_gp_lqr
   # - scheme: normal
   # - scheme: debug
 

@@ -4,18 +4,24 @@ RRTPLQRfeatures:
     weights_features:
       Nfeat: 50
     sigma_n:
-      init: 0.5
+      init: 0.01
   dim_state: 1
   dim_control: 1
   learning:
     epochs: 200
+  empirical_weights:
+    Q_emp: np.eye(${RRTPLQRfeatures.dim_state})
+    R_emp: np.eye(${RRTPLQRfeatures.dim_control})
+
 
 dataset:
   # Input dimensionality:
   dim: 1
-  xlims: "[-2,1]" # Limits of hypercube
-  Nevals: 20
-  with_noise: True
+  # xlims: "[-2,1]" # Limits of hypercube
+  xlims: "[0,5]" # Limits of hypercube
+  # xlims: "[-2,-1]" # Limits of hypercube
+  Nevals: 3
+  with_noise: False
   generate: # Generate a number of cost functions by randomly sampling the system matrices
     use: False
 

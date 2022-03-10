@@ -163,12 +163,13 @@ def main(cfg: dict) -> None:
 	tf.random.set_seed(my_seed)
 
 	# activate_log_process = False
-	activate_log_process = True
+	# activate_log_process = True
 
 	xlim = eval(cfg.dataset.xlims)
 
 	Npred = 100
-	xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
+	# xpred = 10**tf.reshape(tf.linspace(xlim[0],xlim[1],Npred),(-1,1))
+	xpred = tf.reshape(tf.linspace(0.0,5.0,Npred),(-1,1))
 
 	X,Y,A,B = generate_dataset(cfg)
 
@@ -217,6 +218,42 @@ def main(cfg: dict) -> None:
 
 	5) [Not needed] In test_elbo, LossElboLQR() class, we should use the transformed mean and kernel!!!
 	6) Same thing for thr new GPLQR (with the Gaussian Mixture Model)
+
+
+	/After coming to Berkeley/
+	SOLVED 1. In model_LQRcost_as_GP(), we can see that if
+	we use a Matern kernel with large lengthscales, the model doesn't react
+	to the data, same as it happens with our LQR kernel. Conversely, if we
+	use the Matern kernel with small lengthscales (lines 64,65), the model
+	actually reacts to the data. This can only mean that somehow the LQR
+	kernel hyperparameters are just very stiff. Maybe, try changing
+	somthing, but what? Q_emp, R_emp are user choices...
+	SOLUTION: The kernel does react to data. The reason it seemed it didn't was because
+	the noise parameter of the likelihood of the GP model was too large compared to the posterior variance of the kernel
+	itself, which is very small. By simply reducing the std of the likelihood noise to 0.01, we can
+	see the GP shrinking around the evaluations. Importantly, if the variance of the initial condition (i.e., Sigma0 in x0 ~ N(mu0,Sigma0))
+	is too large, then the cost observations are too scatered in the Y axis. For the sake of presentation, we should have a smaller Sigma0.
+	In addition, we should find a way to increase the prior variance of the kernel itself while keeping a small amount of likelihod noise.
+	
+	2. Changing V_noise
+	in SolveLQR.get_stationary_covariance_between_two_systems() and
+	SolveLQR.get_stationary_variance() only influences the total magnitude
+	of the variance, but not the lengthscales themselves...
+	
+	3. So far, the kernel is stiff. This may be because the model (A,B) we're using is fixed. 
+		Maybe, to make the regression flexible, we need to add more model flexibility to the kernel, as we did in the CDC paper.
+		NO! Because the data is generated using the excat same model... 
+	4. Maybe the data we're using varies just too crazy. Use the mean plus noise...
+
+	5. The V is HARDCODED!!! in solve_lqr.get_stationary_covariance_between_two_systems()
+	6. The observations are being generated in LQRCostChiSquared() using solve_lqr.forward_simulation_with_random_initial_condition() OR
+		solve_lqr.forward_simulation_expected_value(), both of which DO NOT have the v_k terms into account, while they should actually have to,
+		for consistency. 
+		For solve_lqr.forward_simulation_with_random_initial_condition(), the easiest would be to roll out the model.
+		For solve_lqr.forward_simulation_expected_value(), there is an analytical expression, which can be extracted from the first 20 equations
+		in the paper. I wrote down the solution, but it depends linearly on N, so when N goes to infty, we have problems... This result (i.e., the
+		expected cost of an LQG problem) should be well known. Look for it in a book.
+
 
 	"""
 

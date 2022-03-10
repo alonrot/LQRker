@@ -43,7 +43,7 @@ class LQRmomentsCommon():
 	
 
 	@staticmethod
-	def _get_stationary_system_cross_variance(th1_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
+	def _get_stationary_system_variance(th1_vec,dim_in,dim_state,dim_control,M,A_samples,B_samples,solve_lqr):
 
 		Q_des_th1, R_des_th1 = LQRmomentsCommon._parse_theta_into_QR(th1_vec,dim_in,dim_state,dim_control)
 
@@ -264,7 +264,7 @@ class LQRkernel(gpflow.kernels.Kernel,LQRmomentsCommon):
 												self.dim_control,self.M,self.A_samples,
 												self.B_samples,self.solve_lqr)
 
-			Sigma_xx_list = self._get_stationary_system_cross_variance(X[ii,:],self.dim_in,self.dim_state,
+			Sigma_xx_list = self._get_stationary_system_variance(X[ii,:],self.dim_in,self.dim_state,
 												self.dim_control,self.M,self.A_samples,
 												self.B_samples,self.solve_lqr)
 
@@ -355,7 +355,7 @@ class LQRMean(gpflow.mean_functions.MeanFunction,LQRmomentsCommon):
 												self.dim_control,self.M,self.A_samples,
 												self.B_samples,self.solve_lqr)
 
-			Sigma_xx_list = self._get_stationary_system_cross_variance(X[ii,:],self.dim_in,self.dim_state,
+			Sigma_xx_list = self._get_stationary_system_variance(X[ii,:],self.dim_in,self.dim_state,
 												self.dim_control,self.M,self.A_samples,
 												self.B_samples,self.solve_lqr)
 

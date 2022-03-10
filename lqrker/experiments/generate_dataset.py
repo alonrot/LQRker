@@ -32,6 +32,11 @@ def generate_dataset(cfg: dict):
 	xlim = eval(cfg.dataset.xlims)
 	Nevals = cfg.dataset.Nevals
 
+	"""
+	NOTE: By default, we are generating only one system (see below Nsys=1)
+	TODO: Pass it as an input parameter
+	"""
+
 	lqr_cost = LQRCostChiSquared(dim_in=dim,cfg=cfg.RRTPLQRfeatures,Nsys=1)
 	# if cfg.dataset.which_cost == "LQRCostChiSquared":
 	# elif cfg.dataset.which_cost == "LQRCostStudent":
@@ -68,8 +73,10 @@ def generate_dataset(cfg: dict):
 
 	else: # Generate single cost
 
+		# xlim[1] = 2.0
+
 		X = xlim[0] + (xlim[1] - xlim[0])*tf.math.sobol_sample(dim=dim, num_results=Nevals, skip=2000, dtype=tf.dtypes.float32, name=None) # Samples in unit hypercube
-		X = 10**X
+		# X = 10**X
 		# X = 10**tf.random.uniform(shape=(Nevals,dim),minval=xlim[0],maxval=xlim[1])
 		Y = lqr_cost.evaluate(X,with_noise=cfg.dataset.with_noise,verbo=True)
 
