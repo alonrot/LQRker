@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
+ZERO_NUM = 0.0
 
 
 class SpectralDensity(ABC):
@@ -84,9 +85,13 @@ class MaternSpectralDensity(SpectralDensity):
 		self.prior_var = cfg.prior_var*1.0
 		self.dim = dim
 
+		# Constant parameters:
+		self.lambda_val = tf.sqrt(2*self.nu)/self.ls
+		self.const = ((2*tf.sqrt(math.pi))**self.dim)*tf.exp(tf.math.lgamma(self.nu+0.5*self.dim))*self.lambda_val**(2*self.nu) / tf.exp(tf.math.lgamma(self.nu))
+
 	def unnormalized_density(self,omega_in,log=True):
 		"""
-		in: omega_in [Nfeat,]
+		in: omega_in [Nfeat,dim]
 		return: S_vec [Nfeat,]
 
 		Using now the N-dimensional formulation from Rasmussen
@@ -96,27 +101,25 @@ class MaternSpectralDensity(SpectralDensity):
 		Matern kernel spectral density
 		"""
 
-		lambda_val = tf.sqrt(2*self.nu)/self.ls
-		# S_vec = ((2*tf.sqrt(math.pi)*tf.exp(tf.math.lgamma(self.nu+0.5))) / (tf.exp(tf.math.lgamma(self.nu)))) * lambda_val**(2*self.nu)/((lambda_val**2 + omega_in**2)**(self.nu+0.5))
-		const = ((2*tf.sqrt(math.pi))**self.dim)*tf.exp(tf.math.lgamma(self.nu+0.5*self.dim))*lambda_val**(2*self.nu) / tf.exp(tf.math.lgamma(self.nu))
-		S_vec = const / ((lambda_val**2 + omega_in**2)**(self.nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
+		S_vec = self.const / ((self.lambda_val**2 + omega_in**2)**(self.nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
 
-		# Pump variance into it:
-		S_vec = S_vec*self.prior_var
+		# Multiply dimensions (i.e., assume that matern density factorizes w.r.t omega input dimensionality). Also, pump variance into it:
+		S_vec = tf.reduce_prod(S_vec,axis=1)*self.prior_var
 
 		if log == True:
 			return tf.math.log(S_vec)
 
 		return S_vec
 
-	def get_samples(self,Nsamples):
+	def get_samples(self,Nsamples,args):
 
 		log_likelihood_fn = lambda omega_in: self.unnormalized_density(omega_in,log=True)
 		
 		return super().sampleESS(log_likelihood_fn,Nsamples)
 
 	def update_pars(self,args):
-		raise NotImplementedError("Child Class MaternSpectralDensity")
+		pass
+		# raise NotImplementedError("Child Class MaternSpectralDensity")
 
 	def normalized_density(self):
 		raise NotImplementedError("Child Class MaternSpectralDensity")
@@ -378,8 +381,8 @@ class MultiDimensionalFourierTransformQuadratureCartPoleStructure(SpectralDensit
 		1) Add numerical zeroes
 		2) Add log functions
 		3) Pass the policy, instead of the u signal. In principle, we may want to integrate over the whole domain, and for that we need the policy pi(x)
-		5) Fix the TODOs on the parent class, sampling part
-		6) Make the (symmetric) hypercubic domain input-dependent, i.e., L_i instead of a global L
+		5) Fix the TODOs on the parent class, sampling part. Also, test this on test_MultiDimensionalFourierTransformQuadratureCartPoleStructure.py
+		6) Make the (symmetric) hypercubic domain input-dependent, i.e., L_i instead of a global L. Also, self.L is hard-coded right now...
 
 		"""
 
@@ -443,7 +446,7 @@ class MultiDimensionalFourierTransformQuadratureCartPoleStructure(SpectralDensit
 		if ignore_const:
 			const = 1.0
 
-		Sw_vec = (tf.math.sin(self.L * omega_in) - self.L * omega_in) / omega_in**2
+		Sw_vec = (tf.math.sin(self.L * omega_in) - self.L * omega_in) / (omega_in**2)
 		if abs_value:
 			Sw_vec = tf.math.abs(Sw_vec)
 

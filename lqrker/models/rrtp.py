@@ -298,7 +298,13 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		and return it with flipped sign
 		"""
 
-		eigvals, eigvect = tf.linalg.eigh(Kmat)
+		try:
+			eigvals, eigvect = tf.linalg.eigh(Kmat)
+		except Exception as inst:
+			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
+			logger.info("Failed to compute tf.linalg.eigh(Kmat) ...")
+
+			pdb.set_trace()
 
 		max_eigval = tf.reduce_max(tf.math.real(eigvals))
 		min_eigval = tf.reduce_min(tf.math.real(eigvals))
@@ -311,7 +317,11 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# Fix eigenvalues:
 		eigvals_fixed = eigvals + tf.abs(min_eigval) + eps
 
-		Kmat_fixed = eigvect @ ( tf.linalg.diag(eigvals_fixed) @ tf.transpose(eigvect) )
+		# pdb.set_trace()
+		logger.info(" Fixed by adding " + str(tf.abs(min_eigval).numpy()))
+		logger.info(" and also by adding " + str(eps.numpy()))
+
+		Kmat_fixed = eigvect @ ( tf.linalg.diag(eigvals_fixed) @ tf.transpose(eigvect) ) # tf.transpose(eigvect) is the same as tf.linalg.inv(eigvect) | checked
 
 		# Kmat_fixed_sym = 0.5*(Kmat_fixed + tf.transpose(Kmat_fixed))
 
