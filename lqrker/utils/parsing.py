@@ -1,6 +1,14 @@
 import logging
 import yaml
 
+
+class dotdict(dict):
+	"""dot.notation access to dictionary attributes"""
+	__getattr__ = dict.get
+	__setattr__ = dict.__setitem__
+	__delattr__ = dict.__delitem__
+
+
 def save_data(node2write: dict, which_model: str, rep_nr: int) -> None:
 
 	file2save = "./data_{0:s}_{1:d}.yaml".format(which_model,rep_nr)
@@ -21,3 +29,4 @@ def get_logger(name,level=logging.INFO):
 	logger.setLevel(level)
 
 	return logger
+

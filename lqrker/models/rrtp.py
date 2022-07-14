@@ -370,6 +370,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return tf.squeeze(mean_pred), cov_pred
 
+	# def sample_prior_ssm(self,x0):
+
+	# 	Phi0 = self.get_features_mat(x0)
+
 	def get_predictive_entropy(self,cov_pred):
 		"""
 
@@ -438,8 +442,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		Npred = cov_pred.shape[0]
-		Lchol_cov_pred = tf.linalg.cholesky(cov_pred + 1e-6*tf.eye(cov_pred.shape[0]))
+		Lchol_cov_pred = tf.linalg.cholesky(cov_pred + 5e-5*tf.eye(cov_pred.shape[0]))
 		aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ self.sample_mvt0(Npred,Nsamples)
+		# pdb.set_trace()
 		# aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ tf.random.normal(shape=(cov_pred.shape[0],1), mean=0.0, stddev=1.0)
 
 		return aux # [Npred,Nsamples]
@@ -470,29 +475,29 @@ class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
 	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
 	"""
 
-	def __init__(self, dim: int, cfg: dict, spectral_density=None):
+	def __init__(self, dim: int, cfg: dict, spectral_density):
 
 		super().__init__(dim,cfg)
 
 		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 
 		# Spectral density to be used:
-		if spectral_density is None:
-			# self.spectral_density = MaternSpectralDensity(cfg.spectral_density,dim)
-			self.spectral_density = CartPoleSpectralDensity(cfg.spectral_density_pars)
-		else:
-			self.spectral_density = spectral_density
+		self.spectral_density = spectral_density
+		# self.spectral_density = CartPoleSpectralDensity(cfg.spectral_density_pars)
+		# self.spectral_density = MaternSpectralDensity(cfg.spectral_density,dim)
 
 	def update_spectral_density(self,args,state_ind):
 
-		self.spectral_density.update_pars(args)
+		self.spectral_density.update_pars(args) # Left for compatibility with CartPoleSpectralDensity() and others
 
 		# Sample from the density:
-		# Nsamples = int(self.Nfeat * self.dim)
-		W_samples_vec = self.spectral_density.get_samples(self.Nfeat,state_ind) # [Nsamples,1,dim]
-		# pdb.set_trace()
+		W_samples_vec, S_samples_vec, phi_samples_vec = self.spectral_density.get_samples() # [Nsamples,1,dim], [Nsamples,]
 		self.W_samples = tf.reshape(W_samples_vec,(self.Nfeat,self.dim))
+		self.S_samples_vec = S_samples_vec
+		self.phi_samples_vec = phi_samples_vec
 		self.u_samples = tfp.distributions.Uniform(low=0.0, high=2.*math.pi).sample(sample_shape=(1,self.Nfeat))
+
+		# print("self.W_samples:",self.W_samples)
 
 	def get_features_mat(self,X):
 		"""
@@ -502,7 +507,13 @@ class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
 		"""
 
 		WX = tf.transpose(self.W_samples @ tf.transpose(X)) # [Npoints, Nfeat]
-		return tf.math.cos(WX + self.u_samples)
+
+		# self.phi_samples_vec = 0.0
+		# harmonics_vec = tf.math.cos(WX + self.u_samples) # [Npoints, Nfeat], with random phases
+		harmonics_vec = tf.math.cos(WX + self.phi_samples_vec) # [Npoints, Nfeat]
+		harmonics_vec_scaled = harmonics_vec * tf.reshape(self.S_samples_vec,(1,-1)) # [Npoints, Nfeat]
+
+		return harmonics_vec_scaled
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var() * tf.eye(self.Nfeat)
