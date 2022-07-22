@@ -411,48 +411,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return mean_beta_prior, chol_cov_beta_prior
 
-	# def get_predictive_moments_at_predictive_locations_given_beta_moments(self,xpred,mean_beta,cov_beta_chol):
-	# 	"""
-
-	# 	Compute predictive moments at locations xpred, given beta moments. 
-	# 	The beta moments can be either from the prior (no data) or from the posterior (with data)
-	# 	"""
-		
-	# 	logger.info("Computing matrix of features Phi(xpred) ...")
-	# 	Phi_pred = self.get_features_mat(xpred)
-		
-	# 	# # Get mean:
-	# 	# PhiXY = tf.transpose(self.PhiX) @ (self.Y - self.M)
-	# 	# mean_pred = Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, PhiXY) # Missing predictive mean here?
-
-	# 	# # Adding non-zero mean. Check that self.M is also non-zero
-	# 	# # mean_pred += tf.zeros((xpred.shape[0],1))
-
-	# 	# var_noise = self.get_noise_var()
-
-	# 	# # Get covariance:
-	# 	# K22 = var_noise * Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(Phi_pred))
-
-	# 	# # Update parameters from the Student-t distribution:
-	# 	# nu_pred = self.nu + self.X.shape[0]
-
-	# 	# # We copmute K11_inv using the matrix inversion lemma to avoid cubic complexity on the number of evaluations
-	# 	# K11_inv = 1/var_noise*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
-	# 	# beta1 = tf.transpose(self.Y - self.M) @ ( K11_inv @ (self.Y - self.M) )
-	# 	# cov_pred = (self.nu + beta1 - 2) / (nu_pred-2) * K22
-
-	# 	# cov_pred = self.fix_eigvals(cov_pred)
-
-	# 	# return tf.squeeze(mean_pred), cov_pred
-
-	# 	# mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
-
-	# 	mean_pred = Phi_pred @ mean_beta
-	# 	cov_pred_chol = Phi_pred @ cov_beta_chol
-	# 	cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol) # L.L^T
-
-	# 	return tf.squeeze(mean_pred), cov_pred
-
 	def predict_beta(self,from_prior=False):
 
 		if self.X is None and self.Y is None or from_prior:
@@ -482,35 +440,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return tf.squeeze(mean_pred), cov_pred
 
-	# def get_prior_moments_at_predictive_locations(self,xpred):
-	# 	"""
-
-	# 	Predictive moments without data
-
-	# 	xpred: [Npoints,self.dim]
-
-	# 	# Assume model f(x) = w * phi(x), with w ~ MVT(nu,0,I)
-
-	# 	"""
-
-	# 	# Npoints = xpred.shape[0]
-	# 	# mean_prior = tf.zeros(Npoints)
-	# 	# feat_mat = self.get_features_mat(xpred)
-	# 	# Sigma_weights_plus_noise = self.get_cholesky_of_cov_of_prior_beta()
-	# 	# cov_prior = feat_mat @ Sigma_weights_plus_noise @ tf.transpose(feat_mat)
-	# 	# cov_prior = self.fix_eigvals(cov_prior)
-
-	# 	mean_beta_prior, chol_cov_beta_prior = self.get_prior_beta_distribution()
-
-	# 	logger.info("Computing matrix of features Phi(xpred) ...")
-	# 	Phi_pred = self.get_features_mat(xpred)
-
-	# 	mean_prior = Phi_pred @ mean_beta_prior
-	# 	cov_prior_chol = Phi_pred @ chol_cov_beta_prior
-	# 	cov_prior = cov_prior_chol @ tf.transpose(cov_prior_chol)
-
-	# 	return tf.squeeze(mean_prior), cov_prior
-
 	def get_sample_path_callable(self,Nsamples,from_prior=False):
 
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
@@ -535,66 +464,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		fx = self.get_sample_path_callable(Nsamples,from_prior)
 		sample_xpred = fx(xpred)
 
-		# mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
-		# Nfeat = cov_beta_chol.shape[0]
-
-		# sample_mvt0 = self.get_sample_mvt0(Nfeat,Nsamples)
-
-		# aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mvt0
-
-		# Phi_pred = self.get_features_mat(xpred)
-
-		# sample_xpred = Phi_pred @ aux
-
 		return sample_xpred
 
-
-
-	# def _sample_path_given_moments(self,mean_pred,cov_pred,Nsamples,resample_mvt0=True):
-	# 	"""
-
-	# 	xpred: [Npoints,self.dim]
-
-	# 	"""
-
-	# 	Npred = cov_pred.shape[0]
-	# 	if resample_mvt0: # TODO: Refactor this
-	# 		self.sample_mvt0 = self.get_sample_mvt0(Npred,Nsamples)
-	# 	# print("self.sample_mvt0:",self.sample_mvt0[0,:])
-
-	# 	Lchol_cov_pred = tf.linalg.cholesky(cov_pred)
-	# 	aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ self.sample_mvt0
-	# 	# pdb.set_trace()
-	# 	# aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ tf.random.normal(shape=(cov_pred.shape[0],1), mean=0.0, stddev=1.0)
-
-	# 	return aux # [Npred,Nsamples]
-
-	# def sample_path_from_predictive(self,xpred,Nsamples,resample_mvt0=True):
-	# 	"""
-
-	# 	xpred: [Npoints,self.dim]
-
-	# 	Sample a path from the posterior MTV as:
-	# 	return: mean + Lchol @ MVT(nu,0,I) # [Npred, Nsamples]
-	# 	"""
-
-	# 	mean_pred, cov_pred = self.get_predictive_moments_at_predictive_locations(xpred)
-	# 	return self._sample_path_given_moments(mean_pred,cov_pred,Nsamples,resample_mvt0)
-
-	# def sample_path_from_prior(self,xpred,Nsamples):
-	# 	"""
-
-	# 	xpred: [Npoints,self.dim]
-
-	# 	Sample a path from the prior MTV as:
-	# 	return: mean + Lchol @ MVT(nu,0,I) # [Npred, Nsamples]		
-	# 	"""
-
-	# 	mean_prior, cov_prior = self.get_prior_moments_at_predictive_locations(xpred)
-	# 	return self._sample_path_given_moments(mean_prior,cov_prior,Nsamples)
-
-
-	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,sort=False):
+	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,sort=False,plotting=False):
 		"""
 
 		Pass two initial latent values
@@ -626,8 +498,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		Ytraining_and_new = tf.concat([Ytraining,x1],axis=0)
 		self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
 
-		hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(12,8),sharex=True)
-		hdl_fig.suptitle(r"Kink function simulation $x_{t+1} = f(x_t) + \varepsilon$"+", kernel: {0}".format("kink"),fontsize=fontsize_labels)
+		if plotting:
+			hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(12,8),sharex=True)
+			hdl_fig.suptitle(r"Kink function simulation $x_{t+1} = f(x_t) + \varepsilon$"+", kernel: {0}".format("kink"),fontsize=fontsize_labels)
 
 		xsamples = np.zeros((traj_length,self.dim),dtype=np.float32)
 		xsamples[0,:] = x0
@@ -650,21 +523,21 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			Ytraining_and_new = tf.concat([Ytraining,Ynew],axis=0)
 			self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
 
-			# Plot what's going on at each iteration here:
-			MO_mean_pred, cov_pred = self.predict_at_locations(xpred)
-			MO_std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
-			hdl_splots[0].cla()
-			hdl_splots[0].plot(xpred,MO_mean_pred,linestyle="-",color="b",lw=3)
-			hdl_splots[0].fill_between(xpred[:,0],MO_mean_pred - 2.*MO_std_pred,MO_mean_pred + 2.*MO_std_pred,color="cornflowerblue",alpha=0.5)
-			hdl_splots[0].plot(Xnew[:,0],Ynew[:,0],marker=".",linestyle="--",color="gray",lw=0.5,markersize=5)
-			hdl_splots[0].set_xlim([xmin,xmax])
-			hdl_splots[0].set_ylabel(r"$x_{t+1}$",fontsize=fontsize_labels)
-			hdl_splots[0].plot(xpred,yplot_true_fun,marker="None",linestyle="-",color="grey",lw=1)
-			hdl_splots[0].plot(xpred,yplot_sampled_fun,marker="None",linestyle="--",color="r",lw=0.5)
+			if plotting:
+				# Plot what's going on at each iteration here:
+				MO_mean_pred, cov_pred = self.predict_at_locations(xpred)
+				MO_std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
+				hdl_splots[0].cla()
+				hdl_splots[0].plot(xpred,MO_mean_pred,linestyle="-",color="b",lw=3)
+				hdl_splots[0].fill_between(xpred[:,0],MO_mean_pred - 2.*MO_std_pred,MO_mean_pred + 2.*MO_std_pred,color="cornflowerblue",alpha=0.5)
+				hdl_splots[0].plot(Xnew[:,0],Ynew[:,0],marker=".",linestyle="--",color="gray",lw=0.5,markersize=5)
+				hdl_splots[0].set_xlim([xmin,xmax])
+				hdl_splots[0].set_ylabel(r"$x_{t+1}$",fontsize=fontsize_labels)
+				hdl_splots[0].plot(xpred,yplot_true_fun,marker="None",linestyle="-",color="grey",lw=1)
+				hdl_splots[0].plot(xpred,yplot_sampled_fun,marker="None",linestyle="--",color="r",lw=0.5)
 
-			plt.pause(0.1)
-			# input()
-
+				plt.pause(0.1)
+				# input()
 
 		xsamples_X = xsamples[0:-1,:]
 		xsamples_Y = xsamples[1::,:]
@@ -676,8 +549,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			xsamples_X = xsamples_X[ind_sort,:]
 			xsamples_Y = xsamples_Y[ind_sort,:]
 
-
-		# self.update_model(X=None,Y=None)
+		# Go back to the dataset at it was:
+		self.update_model(X=Xtraining,Y=Ytraining)
 
 		return xsamples_X, xsamples_Y
 
