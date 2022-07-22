@@ -134,6 +134,8 @@ class RRTPSarkkaFeatures(ReducedRankStudentTProcessBase):
 
 	def __init__(self, dim: int, cfg: dict):
 
+		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
+
 		super().__init__(dim,cfg)
 
 		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
@@ -193,6 +195,8 @@ class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 
 	def __init__(self, dim: int, cfg: dict):
 
+		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
+
 		super().__init__(dim,cfg)
 
 		# Elements of the diagonal matrix Lambda:
@@ -237,6 +241,9 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 	"""
 
 	def __init__(self, dim: int, cfg: dict):
+
+		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
+		
 		super().__init__(dim,cfg)
 
 		# Get parameters:

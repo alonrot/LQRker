@@ -396,8 +396,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		The covariance is taken from [1, Sec. 7.7]
 	
-
-
 		[1] Petersen, K.B. and Pedersen, M.S., 2008. The matrix cookbook. Technical University of Denmark, 7(15), p.510.
 		[2] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In *Artificial intelligence and statistics* (pp. 877-885). PMLR.
 
