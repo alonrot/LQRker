@@ -9,21 +9,21 @@ import numpy as np
 # from lqrker.objectives.lqr_cost_chi2 import LQRCostChiSquared
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
-from lqrker.utils.spectral_densities import MaternSpectralDensity, CartPoleSpectralDensity
 logger = get_logger(__name__)
 
+# import warnings
+# warnings.filterwarnings("error")
 
-"""
-Refactor:
-
-1) Make the self.log_diag_vals sub-class dependent. For Sarkka features we have one thing,
-for Random F.F we have another thing
-2) Study in rrblr.py the effect of an uncentered x in the domain. Also, study what happens if we use
-random eigenvalues, or if we let the j's be picked randomly or inferred from data. If that doesn't improve the
-predictions, it could be that the system dynamics are not anywhere close to a Matern process...?
-3) Try to derive the kernel following Sarkka's approach for the inverted pendulum equations, by linearizing
-"""
-
+import matplotlib.pyplot as plt
+import matplotlib
+markersize_x0 = 10
+markersize_trajs = 0.4
+fontsize_labels = 25
+matplotlib.rc('xtick', labelsize=fontsize_labels)
+matplotlib.rc('ytick', labelsize=fontsize_labels)
+matplotlib.rc('text', usetex=True)
+matplotlib.rc('font',**{'family':'serif','serif':['Computer Modern Roman']})
+plt.rc('legend',fontsize=fontsize_labels+2)
 
 
 class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
@@ -32,18 +32,20 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	Reduced-Rank Student-t Process
 	==============================
 	We implement the Student-t process presented in [1]. However, instead of using
-	a kernel function, we use the weight-space view [] weight-space view from [1,
-	Sec. 2.1.2] in order to reduce computational speed by using a finite set of
-	features.
+	a kernel function, we use the weight-space view from [1, Sec. 2.1.2]
+	in order to reduce computational speed by using a finite set of features.
+	See also [3].
 
 	We assume zero mean. Extending it non-zero mean is trivial.
 
 
-	[1] Rasmussen, C.E. and Nickisch, H., 2010. Gaussian processes for machine
+	[1] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In Artificial intelligence and statistics (pp. 877-885). PMLR.
+
+	[2] Rasmussen, C.E. and Nickisch, H., 2010. Gaussian processes for machine
 	learning (GPML) toolbox. The Journal of Machine Learning Research, 11,
 	pp.3011-3015.
 
-	[2] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank
+	[3] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank
 	Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
 	"""
 	# def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
@@ -74,6 +76,11 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.epochs = cfg.learning.epochs
 		self.stop_loss_val = cfg.learning.stopping_condition.loss_val
 
+		self.sample_mvt0 = None # TODO: Refactor this
+
+		# No data case:
+		self.X = None
+		self.Y = None
 
 	def add2dataset(self,xnew,ynew):
 		pass
@@ -98,6 +105,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		X: None
 		return: None
 		"""
+		raise NotImplementedError
+
+	@abstractmethod
+	def get_cholesky_of_cov_of_prior_beta(self):
 		raise NotImplementedError
 
 	def get_logdetSigma_weights(self):
@@ -298,12 +309,19 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		and return it with flipped sign
 		"""
 
+		
+		Kmat_sol = tf.linalg.cholesky(Kmat)
+		if tf.math.reduce_any(tf.math.is_nan(Kmat_sol)):
+			logger.info("Kmat needs to be fixed...")
+		else:
+			logger.info("Kmat is PD; nothing to fix...")
+			return Kmat
+
 		try:
 			eigvals, eigvect = tf.linalg.eigh(Kmat)
 		except Exception as inst:
 			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
 			logger.info("Failed to compute tf.linalg.eigh(Kmat) ...")
-
 			pdb.set_trace()
 
 		max_eigval = tf.reduce_max(tf.math.real(eigvals))
@@ -343,36 +361,333 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 		raise NotImplementedError
 
-	def get_predictive_moments(self,xpred):
-		
-		logger.info("Computing matrix of features Phi(xpred) ...")
-		Phi_pred = self.get_features_mat(xpred)
-		
+	def get_predictive_beta_distribution(self):
+		"""
+
+		TODO: Make sure this is the right way of inclduing the prior mean
+		"""
+
 		# Get mean:
 		PhiXY = tf.transpose(self.PhiX) @ (self.Y - self.M)
-		mean_pred = Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, PhiXY)
+		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY)
 
 		# Adding non-zero mean. Check that self.M is also non-zero
 		# mean_pred += tf.zeros((xpred.shape[0],1))
 
 		var_noise = self.get_noise_var()
 
-		# Get covariance:
-		K22 = var_noise * Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(Phi_pred))
-
 		# Update parameters from the Student-t distribution:
 		nu_pred = self.nu + self.X.shape[0]
 
-		# We copmute K11_inv using the matrix inversion lemma to avoid cubic complexity on the number of evaluations
 		K11_inv = 1/var_noise*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
 		beta1 = tf.transpose(self.Y - self.M) @ ( K11_inv @ (self.Y - self.M) )
-		cov_pred = (self.nu + beta1 - 2) / (nu_pred-2) * K22
+		cov_beta_factor_sqrt = tf.sqrt( (self.nu + beta1 - 2) / (nu_pred-2) * var_noise )
+
+		cov_beta_chol = tf.linalg.inv(tf.transpose(self.Lchol)) * cov_beta_factor_sqrt
+		return mean_beta, cov_beta_chol
+
+	def get_prior_beta_distribution(self):
+		"""
+
+		NOTE: here we are adding noise, but in self.get_predictive_beta_distribution() we aren't
+		NOTE: The prior mean and covariance are hardcoded to zero
+		NOTE: We can't have an additive noise model here. We do as they do in [2, Fig. 3], i.e., we add the noise
+		directly to the covariance matrix, but this doesn't correspond to th covariance of t1+t2.
+
+		The covariance is taken from [1, Sec. 7.7]
+	
+
+
+		[1] Petersen, K.B. and Pedersen, M.S., 2008. The matrix cookbook. Technical University of Denmark, 7(15), p.510.
+		[2] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In *Artificial intelligence and statistics* (pp. 877-885). PMLR.
+
+		"""
+		
+		# Get prior cov:
+		chol_cov_beta_prior = self.get_cholesky_of_cov_of_prior_beta() * tf.math.sqrt( (self.nu) / (self.nu - 2.) )
+
+		# Get prior mean:
+		mean_beta_prior = tf.zeros((chol_cov_beta_prior.shape[0],1))
+
+		return mean_beta_prior, chol_cov_beta_prior
+
+	# def get_predictive_moments_at_predictive_locations_given_beta_moments(self,xpred,mean_beta,cov_beta_chol):
+	# 	"""
+
+	# 	Compute predictive moments at locations xpred, given beta moments. 
+	# 	The beta moments can be either from the prior (no data) or from the posterior (with data)
+	# 	"""
+		
+	# 	logger.info("Computing matrix of features Phi(xpred) ...")
+	# 	Phi_pred = self.get_features_mat(xpred)
+		
+	# 	# # Get mean:
+	# 	# PhiXY = tf.transpose(self.PhiX) @ (self.Y - self.M)
+	# 	# mean_pred = Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, PhiXY) # Missing predictive mean here?
+
+	# 	# # Adding non-zero mean. Check that self.M is also non-zero
+	# 	# # mean_pred += tf.zeros((xpred.shape[0],1))
+
+	# 	# var_noise = self.get_noise_var()
+
+	# 	# # Get covariance:
+	# 	# K22 = var_noise * Phi_pred @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(Phi_pred))
+
+	# 	# # Update parameters from the Student-t distribution:
+	# 	# nu_pred = self.nu + self.X.shape[0]
+
+	# 	# # We copmute K11_inv using the matrix inversion lemma to avoid cubic complexity on the number of evaluations
+	# 	# K11_inv = 1/var_noise*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
+	# 	# beta1 = tf.transpose(self.Y - self.M) @ ( K11_inv @ (self.Y - self.M) )
+	# 	# cov_pred = (self.nu + beta1 - 2) / (nu_pred-2) * K22
+
+	# 	# cov_pred = self.fix_eigvals(cov_pred)
+
+	# 	# return tf.squeeze(mean_pred), cov_pred
+
+	# 	# mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
+
+	# 	mean_pred = Phi_pred @ mean_beta
+	# 	cov_pred_chol = Phi_pred @ cov_beta_chol
+	# 	cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol) # L.L^T
+
+	# 	return tf.squeeze(mean_pred), cov_pred
+
+	def predict_beta(self,from_prior=False):
+
+		if self.X is None and self.Y is None or from_prior:
+			mean_beta, cov_beta_chol = self.get_prior_beta_distribution()
+		else:
+			mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
+
+		return mean_beta, cov_beta_chol
+
+	def predict_at_locations(self,xpred,from_prior=False):
+		"""
+
+		Optimize this by returning the diagonal elements of the cholesky decomposition of cov_pred
+
+		"""
+
+		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
+
+
+		logger.info("Computing matrix of features Phi(xpred) ...")
+		Phi_pred = self.get_features_mat(xpred)
+
+		# pdb.set_trace()
+		mean_pred = Phi_pred @ mean_beta
+		cov_pred_chol = Phi_pred @ cov_beta_chol
+		cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol) # L.L^T
 
 		return tf.squeeze(mean_pred), cov_pred
 
-	# def sample_prior_ssm(self,x0):
+	# def get_prior_moments_at_predictive_locations(self,xpred):
+	# 	"""
 
-	# 	Phi0 = self.get_features_mat(x0)
+	# 	Predictive moments without data
+
+	# 	xpred: [Npoints,self.dim]
+
+	# 	# Assume model f(x) = w * phi(x), with w ~ MVT(nu,0,I)
+
+	# 	"""
+
+	# 	# Npoints = xpred.shape[0]
+	# 	# mean_prior = tf.zeros(Npoints)
+	# 	# feat_mat = self.get_features_mat(xpred)
+	# 	# Sigma_weights_plus_noise = self.get_cholesky_of_cov_of_prior_beta()
+	# 	# cov_prior = feat_mat @ Sigma_weights_plus_noise @ tf.transpose(feat_mat)
+	# 	# cov_prior = self.fix_eigvals(cov_prior)
+
+	# 	mean_beta_prior, chol_cov_beta_prior = self.get_prior_beta_distribution()
+
+	# 	logger.info("Computing matrix of features Phi(xpred) ...")
+	# 	Phi_pred = self.get_features_mat(xpred)
+
+	# 	mean_prior = Phi_pred @ mean_beta_prior
+	# 	cov_prior_chol = Phi_pred @ chol_cov_beta_prior
+	# 	cov_prior = cov_prior_chol @ tf.transpose(cov_prior_chol)
+
+	# 	return tf.squeeze(mean_prior), cov_prior
+
+	def get_sample_path_callable(self,Nsamples,from_prior=False):
+
+		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
+
+		# mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
+		Nfeat = cov_beta_chol.shape[0]
+		sample_mvt0 = self.get_sample_mvt0(Nfeat,Nsamples)
+		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mvt0
+
+		def nonlinfun_sampled_callable(x):
+			return self.get_features_mat(x) @ aux
+
+		return nonlinfun_sampled_callable
+
+	def sample_path_from_predictive(self,xpred,Nsamples,from_prior=False):
+		"""
+
+		xpred: [Npoints,self.dim]
+
+		"""
+
+		fx = self.get_sample_path_callable(Nsamples,from_prior)
+		sample_xpred = fx(xpred)
+
+		# mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
+		# Nfeat = cov_beta_chol.shape[0]
+
+		# sample_mvt0 = self.get_sample_mvt0(Nfeat,Nsamples)
+
+		# aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mvt0
+
+		# Phi_pred = self.get_features_mat(xpred)
+
+		# sample_xpred = Phi_pred @ aux
+
+		return sample_xpred
+
+
+
+	# def _sample_path_given_moments(self,mean_pred,cov_pred,Nsamples,resample_mvt0=True):
+	# 	"""
+
+	# 	xpred: [Npoints,self.dim]
+
+	# 	"""
+
+	# 	Npred = cov_pred.shape[0]
+	# 	if resample_mvt0: # TODO: Refactor this
+	# 		self.sample_mvt0 = self.get_sample_mvt0(Npred,Nsamples)
+	# 	# print("self.sample_mvt0:",self.sample_mvt0[0,:])
+
+	# 	Lchol_cov_pred = tf.linalg.cholesky(cov_pred)
+	# 	aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ self.sample_mvt0
+	# 	# pdb.set_trace()
+	# 	# aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ tf.random.normal(shape=(cov_pred.shape[0],1), mean=0.0, stddev=1.0)
+
+	# 	return aux # [Npred,Nsamples]
+
+	# def sample_path_from_predictive(self,xpred,Nsamples,resample_mvt0=True):
+	# 	"""
+
+	# 	xpred: [Npoints,self.dim]
+
+	# 	Sample a path from the posterior MTV as:
+	# 	return: mean + Lchol @ MVT(nu,0,I) # [Npred, Nsamples]
+	# 	"""
+
+	# 	mean_pred, cov_pred = self.get_predictive_moments_at_predictive_locations(xpred)
+	# 	return self._sample_path_given_moments(mean_pred,cov_pred,Nsamples,resample_mvt0)
+
+	# def sample_path_from_prior(self,xpred,Nsamples):
+	# 	"""
+
+	# 	xpred: [Npoints,self.dim]
+
+	# 	Sample a path from the prior MTV as:
+	# 	return: mean + Lchol @ MVT(nu,0,I) # [Npred, Nsamples]		
+	# 	"""
+
+	# 	mean_prior, cov_prior = self.get_prior_moments_at_predictive_locations(xpred)
+	# 	return self._sample_path_given_moments(mean_prior,cov_prior,Nsamples)
+
+
+	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,sort=False):
+		"""
+
+		Pass two initial latent values
+		x0: [1,self.dim]
+		x1: [1,self.dim]
+
+		Assume that the GP hasn't been trained, and won't be trained during sampling
+
+		NOTE: This is an expensive operation
+
+		"""
+
+		xmin = -6.
+		xmax = +3.
+		Ndiv = 201
+		xpred = tf.linspace(xmin,xmax,Ndiv)
+		xpred = tf.reshape(xpred,(-1,1))
+
+		fx = self.get_sample_path_callable(Nsamples=1)
+
+		yplot_true_fun = self.spectral_density._nonlinear_system_fun(xpred)
+		yplot_sampled_fun = fx(xpred)
+
+		assert traj_length > 2
+
+		Xtraining = tf.identity(self.X) # Copy tensor
+		Ytraining = tf.identity(self.Y) # Copy tensor
+		Xtraining_and_new = tf.concat([Xtraining,x0],axis=0)
+		Ytraining_and_new = tf.concat([Ytraining,x1],axis=0)
+		self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
+
+		hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(12,8),sharex=True)
+		hdl_fig.suptitle(r"Kink function simulation $x_{t+1} = f(x_t) + \varepsilon$"+", kernel: {0}".format("kink"),fontsize=fontsize_labels)
+
+		xsamples = np.zeros((traj_length,self.dim),dtype=np.float32)
+		xsamples[0,:] = x0
+		xsamples[1,:] = x1
+		resample_mvt0 = True
+		for ii in range(1,traj_length-1):
+
+			xsample_tp = tf.convert_to_tensor(value=xsamples[ii:ii+1,:],dtype=np.float32)
+
+			if ii > 1: 
+				resample_mvt0 = False
+
+			# xsamples[ii+1,:] = self.sample_path_from_predictive(xpred=xsample_tp,Nsamples=1,resample_mvt0=resample_mvt0)
+			xsamples[ii+1,:] = fx(xsample_tp)
+
+			Xnew = tf.convert_to_tensor(value=xsamples[0:ii,:],dtype=np.float32)
+			Ynew = tf.convert_to_tensor(value=xsamples[1:ii+1,:],dtype=np.float32)
+
+			Xtraining_and_new = tf.concat([Xtraining,Xnew],axis=0)
+			Ytraining_and_new = tf.concat([Ytraining,Ynew],axis=0)
+			self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
+
+			# Plot what's going on at each iteration here:
+			MO_mean_pred, cov_pred = self.predict_at_locations(xpred)
+			MO_std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
+			hdl_splots[0].cla()
+			hdl_splots[0].plot(xpred,MO_mean_pred,linestyle="-",color="b",lw=3)
+			hdl_splots[0].fill_between(xpred[:,0],MO_mean_pred - 2.*MO_std_pred,MO_mean_pred + 2.*MO_std_pred,color="cornflowerblue",alpha=0.5)
+			hdl_splots[0].plot(Xnew[:,0],Ynew[:,0],marker=".",linestyle="--",color="gray",lw=0.5,markersize=5)
+			hdl_splots[0].set_xlim([xmin,xmax])
+			hdl_splots[0].set_ylabel(r"$x_{t+1}$",fontsize=fontsize_labels)
+			hdl_splots[0].plot(xpred,yplot_true_fun,marker="None",linestyle="-",color="grey",lw=1)
+			hdl_splots[0].plot(xpred,yplot_sampled_fun,marker="None",linestyle="--",color="r",lw=0.5)
+
+			plt.pause(0.1)
+			# input()
+
+
+		xsamples_X = xsamples[0:-1,:]
+		xsamples_Y = xsamples[1::,:]
+
+		if sort:
+			assert x0.shape[1] == 1, "This only makes sense in 1D"
+			ind_sort = tf.argsort(xsamples_X[:,0],axis=0)
+			# pdb.set_trace()
+			xsamples_X = xsamples_X[ind_sort,:]
+			xsamples_Y = xsamples_Y[ind_sort,:]
+
+
+		# self.update_model(X=None,Y=None)
+
+		return xsamples_X, xsamples_Y
+
+	def get_predictive_entropy_of_truncated_dist(self):
+		"""
+
+		https://link.springer.com/content/pdf/10.1016/j.jkss.2007.06.001.pdf
+		"""
+
+		pass
 
 	def get_predictive_entropy(self,cov_pred):
 		"""
@@ -403,7 +718,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return entropy
 
-	def sample_mvt0(self,Npred,Nsamples):
+	def get_sample_mvt0(self,Npred,Nsamples):
 		"""
 		Sample a path from MVT(nu,0,I)
 		Using: (i) uniform sphere, (ii) inverse gamma, and (iii) Chi-squared
@@ -434,29 +749,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return tf.transpose(sample_mvt0) # [Npred,Nsamples]
 
-	def sample_path(self,mean_pred,cov_pred,Nsamples):
-		"""
-
-		Sample a path from the posterior MTV as:
-		return: mean + Lchol @ MVT(nu,0,I) # [Npred, Nsamples]
-		"""
-
-		Npred = cov_pred.shape[0]
-		Lchol_cov_pred = tf.linalg.cholesky(cov_pred + 5e-5*tf.eye(cov_pred.shape[0]))
-		aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ self.sample_mvt0(Npred,Nsamples)
-		# pdb.set_trace()
-		# aux = tf.reshape(mean_pred,(-1,1)) + Lchol_cov_pred @ tf.random.normal(shape=(cov_pred.shape[0],1), mean=0.0, stddev=1.0)
-
-		return aux # [Npred,Nsamples]
-
-	def get_predictive_entropy_of_truncated_dist(self):
-		"""
-
-		https://link.springer.com/content/pdf/10.1016/j.jkss.2007.06.001.pdf
-		"""
-
-		pass
-
 
 	def call(self, inputs):
 		# y = tf.matmul(inputs, self.w) + self.b
@@ -464,189 +756,4 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		logger.info("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
 		pass
 
-class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
-	"""
-	
-	TODO:
-	1) Maybe sample just a single vector, like in the jmlr paper
-	2) Think about optimizing weights somehow. Prior on spectral density with model?
-	3) Add other hyperparameters as trainable variables to the optimization
-	4) Refactor all this in different files
-	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
-	"""
-
-	def __init__(self, dim: int, cfg: dict, spectral_density):
-
-		super().__init__(dim,cfg)
-
-		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
-
-		# Spectral density to be used:
-		self.spectral_density = spectral_density
-		# self.spectral_density = CartPoleSpectralDensity(cfg.spectral_density_pars)
-		# self.spectral_density = MaternSpectralDensity(cfg.spectral_density,dim)
-
-	def update_spectral_density(self,args,state_ind):
-
-		self.spectral_density.update_pars(args) # Left for compatibility with CartPoleSpectralDensity() and others
-
-		# Sample from the density:
-		W_samples_vec, S_samples_vec, phi_samples_vec = self.spectral_density.get_samples() # [Nsamples,1,dim], [Nsamples,]
-		self.W_samples = tf.reshape(W_samples_vec,(self.Nfeat,self.dim))
-		self.S_samples_vec = S_samples_vec
-		self.phi_samples_vec = phi_samples_vec
-		self.u_samples = tfp.distributions.Uniform(low=0.0, high=2.*math.pi).sample(sample_shape=(1,self.Nfeat))
-
-		# print("self.W_samples:",self.W_samples)
-
-	def get_features_mat(self,X):
-		"""
-
-		X: [Npoints, dim]
-		return: PhiX: [Npoints, Nfeat]
-		"""
-
-		WX = tf.transpose(self.W_samples @ tf.transpose(X)) # [Npoints, Nfeat]
-
-		# self.phi_samples_vec = 0.0
-		# harmonics_vec = tf.math.cos(WX + self.u_samples) # [Npoints, Nfeat], with random phases
-		harmonics_vec = tf.math.cos(WX + self.phi_samples_vec) # [Npoints, Nfeat]
-		harmonics_vec_scaled = harmonics_vec * tf.reshape(self.S_samples_vec,(1,-1)) # [Npoints, Nfeat]
-
-		return harmonics_vec_scaled
-		
-	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var() * tf.eye(self.Nfeat)
-
-	def get_logdetSigma_weights(self):
-		return 0.0
-
-
-class RRTPSarkkaFeatures(ReducedRankStudentTProcessBase):
-
-	def __init__(self, dim: int, cfg: dict):
-
-		super().__init__(dim,cfg)
-
-		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
-		self.L = cfg.hyperpars.L
-		self.jj = tf.reshape(tf.range(1,self.Nfeat+1,dtype=tf.float32),(-1,1,1)) # [Nfeat, 1, 1]
-
-		# Spectral density to be used:
-		self.spectral_density = MaternSpectralDensity(cfg.spectral_density,dim)
-
-	def _get_eigenvalues(self):
-		"""
-
-		Eigenvalues of the laplace operator
-		"""
-
-		Lstack = tf.stack([self.L]*self.Nfeat) # [Nfeat, dim]
-		jj = tf.reshape(tf.range(1,self.Nfeat+1,dtype=tf.float32),(-1,1)) # [Nfeat, 1]
-		# pdb.set_trace()
-		Ljj = (math.pi * jj / (2.*Lstack))**2 # [Nfeat, dim]
-
-		return tf.reduce_sum(Ljj,axis=1) # [Nfeat,]
-
-	def get_features_mat(self,X):
-		"""
-
-		X: [Npoints, dim]
-		return: PhiX: [Npoints, Nfeat]
-		"""
-		
-		xx = tf.stack([X]*self.Nfeat) # [Nfeat, Npoints, dim]
-		# jj = tf.reshape(tf.range(self.Nfeat,dtype=tf.float32),(-1,1,1)) # [Nfeat, 1, 1]
-		# pdb.set_trace()
-		feat = 1/tf.sqrt(self.L) * tf.sin( math.pi*self.jj*(xx + self.L)/(2.*self.L) ) # [Nfeat, Npoints, dim]
-		return tf.transpose(tf.reduce_prod(feat,axis=-1)) # [Npoints, Nfeat]
-
-	def get_Sigma_weights_inv_times_noise_var(self):
-		omega_in = tf.sqrt(self._get_eigenvalues())
-		S_vec = self.spectral_density.unnormalized_density(omega_in)
-		ret = self.get_noise_var() * tf.linalg.diag(1./S_vec)
-
-		# if tf.math.reduce_any(tf.math.is_nan(ret)):
-		# 	pdb.set_trace()
-
-		return ret
-
-	def get_logdetSigma_weights(self):
-		omega_in = tf.sqrt(self._get_eigenvalues())
-		S_vec = self.spectral_density.unnormalized_density(omega_in)
-		return tf.reduce_sum(tf.math.log(S_vec))
-
-class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
-
-	def __init__(self, dim: int, cfg: dict):
-
-		super().__init__(dim,cfg)
-
-		# Elements of the diagonal matrix Lambda:
-		# TODO: Test the line below
-		self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-
-	def get_features_mat(self,X):
-		"""
-		X: [Npoints, in_dim]
-		return: PhiX: [Npoints, Nfeat]
-		"""
-
-		Npoints = X.shape[0]
-		SQRT2 = math.sqrt(2)
-
-		if self.dim == 1:
-			PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , X**2 ],axis=1)
-		else:
-			PhiX = tf.concat([ tf.ones((Npoints,1)) , SQRT2*X , SQRT2*tf.math.reduce_prod(X,axis=1,keepdims=True) , X**2 ],axis=1)
-
-		assert cfg.weights_features.Nfeat == PhiX.shape[1], "Basically, for quadratic features the number of features is given a priori; the user cannot choose"
-
-		return PhiX # [Npoints, Nfeat]
-
-	def get_Sigma_weights_inv_times_noise_var(self):
-		"""
-		The Lambda matrix depends on the choice of features
-
-		TODO: Test this function
-		"""
-		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
-
-	def get_logdetSigma_weights(self):
-		# TODO: Test this function
-		return tf.reduce_sum(self.log_diag_vals)
-
-class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
-
-	def __init__(self, dim: int, cfg: dict):
-		super().__init__(dim,cfg)
-
-		# Get parameters:
-		nu = cfg.hyperpars.nu
-		Nsys = cfg.hyperpars.weights_features.Nfeat # Use as many systems as number of features
-
-		# TODO: Test the line below
-		self.log_diag_vals = self.add_weight(shape=(Nsys,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-
-		self.lqr_cost = LQRCostChiSquared(dim_in=dim,cfg=cfg,Nsys=Nsys)
-		print("Make sure we're NOT using noise in the config file...")
-		pdb.set_trace()
-
-	def get_features_mat(self,X):
-		"""
-		X: [Npoints, in_dim]
-		return: PhiX: [Npoints, Nfeat]
-		"""
-
-		cost_values_all = self.lqr_cost.evaluate(X,add_noise=False,verbo=True)
-
-		return cost_values_all
-
-	def get_Sigma_weights_inv_times_noise_var(self):
-		# TODO: Test this function
-		return self.get_noise_var()*tf.linalg.diag(tf.exp(-self.log_diag_vals))
-
-	def get_logdetSigma_weights(self):
-		# TODO: Test this function
-		return tf.reduce_sum(self.log_diag_vals)
 

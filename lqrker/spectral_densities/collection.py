@@ -5,14 +5,14 @@ from abc import ABC, abstractmethod
 import numpy as np
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
-from lqrker.spectral_densities.spectral_density_base import SpectralDensityBase
+from lqrker.spectral_densities.base import SpectralDensityBase
 logger = get_logger(__name__)
 
 
 class SquaredExponentialSpectralDensity(SpectralDensityBase):
 
-	def __init__(self,cfg: dict, dim: int):
-		super().__init__(cfg.samplerHMC,dim)
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg_sampler,dim)
 
 		# Parameters:
 		self.ls = cfg.ls*1.0
@@ -43,21 +43,10 @@ class SquaredExponentialSpectralDensity(SpectralDensityBase):
 
 		return S_vec, 0.0
 
-	def update_pars(self,args):
-		pass
-		# raise NotImplementedError("Child Class MaternSpectralDensity")
-
-	def normalized_density(self):
-		raise NotImplementedError("Child Class MaternSpectralDensity")
-
-	def log_normalized_density(self):
-		raise NotImplementedError("Child Class MaternSpectralDensity")
-
-
 class MaternSpectralDensity(SpectralDensityBase):
 
-	def __init__(self,cfg: dict, dim: int):
-		super().__init__(cfg.samplerHMC,dim)
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg_sampler,dim)
 
 		# Parameters:
 		self.nu = cfg.nu*1.0
@@ -91,21 +80,14 @@ class MaternSpectralDensity(SpectralDensityBase):
 
 		return S_vec, 0.0
 
-	def update_pars(self,args):
-		pass
-		# raise NotImplementedError("Child Class MaternSpectralDensity")
+	def _nonlinear_system_fun(self,x):
+		return tf.zeros(x.shape)
 
-	def normalized_density(self):
-		raise NotImplementedError("Child Class MaternSpectralDensity")
+class NonLinearSystemSpectralDensity(SpectralDensityBase):
+# class NonLinearSystemSpectralDensity(tfp.distributions.distribution.AutoCompositeTensorDistribution,SpectralDensityBase):
 
-	def log_normalized_density(self):
-		raise NotImplementedError("Child Class MaternSpectralDensity")
-
-class KinkSpectralDensity(SpectralDensityBase):
-# class KinkSpectralDensity(tfp.distributions.distribution.AutoCompositeTensorDistribution,SpectralDensityBase):
-
-	def __init__(self, cfg, dim):
-		super().__init__(cfg.samplerHMC,dim)
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg_sampler,dim)
 
 		assert cfg.prior_var > 0.0
 		assert cfg.x_lim_max > cfg.x_lim_min
@@ -117,11 +99,14 @@ class KinkSpectralDensity(SpectralDensityBase):
 		x_lim_max = cfg.x_lim_max # +2.0
 		Nsteps_integration = cfg.Nsteps_integration # 401
 
+		self.volume_x = (x_lim_max - x_lim_min)**self.dim # Assume hypercube
+
 		# pdb.set_trace()
 		xdata = tf.linspace(x_lim_min,x_lim_max,Nsteps_integration)
-		self.dX = xdata[1] - xdata[0]
+		self.dX = (x_lim_max - x_lim_min) / Nsteps_integration
 		self.xdata = tf.reshape(xdata,(-1,self.dim)) # [Nsteps,dim]
-		self.fdata = self._kink_fun(self.xdata) # [Nsteps,1] (since this is a scalar system, we only have one channel)
+		# self.fdata = self._kink_fun(self.xdata) # [Nsteps,1] (since this is a scalar system, we only have one channel)
+		self.fdata = self._nonlinear_system_fun(self.xdata) # [Nsteps,1] (since this is a scalar system, we only have one channel)
 
 	def unnormalized_density(self,omega_in,log=False):
 		"""
@@ -137,17 +122,6 @@ class KinkSpectralDensity(SpectralDensityBase):
 
 		return Sw_vec, phiw_vec
 
-	def update_pars(self,args):
-		pass
-		# raise NotImplementedError("Child Class KinkSpectralDensity")
-
-	def normalized_density(self):
-		raise NotImplementedError("Child Class KinkSpectralDensity")
-
-	def log_normalized_density(self):
-		raise NotImplementedError("Child Class KinkSpectralDensity")
-
-
 	def _MVFourierTransform(self,omega_vec):
 		"""
 
@@ -156,10 +130,10 @@ class KinkSpectralDensity(SpectralDensityBase):
 			Sw: [Npoints,]
 			phiw: [Npoints,]
 		"""
-		
+
 		omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
-		part_real = tfp.math.trapz(y=tf.math.cos(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) # [Npoints,]
-		part_imag = tfp.math.trapz(y=tf.math.sin(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) # [Npoints,]
+		part_real = tfp.math.trapz(y=tf.math.cos(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
+		part_imag = tfp.math.trapz(y=tf.math.sin(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
 
 		# Modulus (spectral density):
 		Sw = tf.math.sqrt(part_real**2 + part_imag**2) # [Npoints]
@@ -169,12 +143,100 @@ class KinkSpectralDensity(SpectralDensityBase):
 
 		return Sw, phiw
 
-	def _kink_fun(self,x):
+	@abstractmethod
+	def _nonlinear_system_fun(self,x):
+		raise NotImplementedError
+
+
+
+class KinkSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg,cfg_sampler,dim)
+
+	def _nonlinear_system_fun(self,x):
+		"""
+
+		Kink function, as described in [1]
+
+		[1] Ialongo, A.D., Van Der Wilk, M., Hensman, J. and Rasmussen, C.E., 2019, May. Overcoming mean-field approximations in recurrent Gaussian process models. In International Conference on Machine Learning (pp. 2931-2940). PMLR.
+		"""
 		return 0.8 + (x + 0.2)*(1. - 5./(1 + tf.math.exp(-2.*x)) )
+
+
+
+
+class ParabolaSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg,cfg_sampler,dim)
+
+	def _nonlinear_system_fun(self,x):
+		return x**2
+
+# class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
+	# def controlled_dynamics(x, y, u1, u2):
+	#     x_dot =-y + u1
+	#     y_dot = x - y + (x**2)*y + u2
+	#     # unstable fixed-point
+	#     return x_dot, y_dot
+
+class NoNameSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg,cfg_sampler,dim)
+
+	def _nonlinear_system_fun(self,x,u=0.):
+
+		"""
+
+		Toy example unction, as described in [1, Sec. 6]
+
+		[1] Frigola, R., Lindsten, F., Schön, T.B. and Rasmussen, C.E., 2013. Bayesian inference and learning in Gaussian process state-space models with particle MCMC. Advances in neural information processing systems, 26.
+		"""
+
+		self.a = 0.5
+		self.b = 25.
+		self.c = 8.
+		# self.q = 10.
+
+		return self.a*x + self.b*x / (1. + x**2) + self.c*u
+
+
+class KinkSharpSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		super().__init__(cfg,cfg_sampler,dim)
+
+	def _nonlinear_system_fun(self,x,u=0.):
+
+		"""
+
+		Toy example unction, as described in [1, Sec. 6]
+
+		[1] Frigola, R., Chen, Y. and Rasmussen, C.E., 2014. Variational Gaussian process state-space models. Advances in neural information processing systems, 27.
+		"""
+
+		ind_smaller = x < 4
+		out = x.numpy()
+		out[ind_smaller] += 1.
+		out[~ind_smaller] = -4.*out[~ind_smaller] + 21.
+
+		return tf.convert_to_tensor(out,dtype=tf.float32)
+
+		# if x < 4:
+		# 	return x + 1
+		# else:
+		# 	return -4.*x + 21.
+
+		# return self.a*x + self.b*x / (1. + x**2) + self.c*u
+
+
 
 
 	# def _log_prob(self,value):
 	# 	"""
+		# See how the uniform distribution is implemented in tensorflow
 	# 	value: float or double Tensor
 	# 	return: a Tensor of shape sample_shape(x) + self.batch_shape with values of type self.dtype
 	# 	"""
@@ -185,6 +247,7 @@ class KinkSpectralDensity(SpectralDensityBase):
 	# 	return out
 
 	# def _sample_n(self, n, seed=None):
+		# See how the uniform distribution is implemented in tensorflow
 	# 	samples = get_samples(n)
 
 	# 	pdb.set_trace()

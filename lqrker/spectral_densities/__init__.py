@@ -1,1 +1,1 @@
-from .spectral_density_collection import SquaredExponentialSpectralDensity, MaternSpectralDensity, KinkSpectralDensity
+from .collection import SquaredExponentialSpectralDensity, MaternSpectralDensity, KinkSpectralDensity, ParabolaSpectralDensity, NoNameSpectralDensity, KinkSharpSpectralDensity

@@ -3,6 +3,7 @@ import pdb
 from abc import ABC, abstractmethod
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
+import numpy as np
 logger = get_logger(__name__)
 
 class SpectralDensityBase(ABC):
@@ -15,19 +16,12 @@ class SpectralDensityBase(ABC):
 
 	def __init__(self,cfg_samplerHMC,dim):
 
-		self.num_burnin_steps = cfg_samplerHMC["num_burnin_steps"]
-		self.Nsamples_per_state0 = cfg_samplerHMC["Nsamples_per_state0"]
-		self.initial_states_sampling = cfg_samplerHMC["initial_states_sampling"]
-		self.step_size_hmc = cfg_samplerHMC["step_size_hmc"]
-		self.num_leapfrog_steps_hmc = cfg_samplerHMC["num_leapfrog_steps_hmc"]
+		self.num_burnin_steps = cfg_samplerHMC.num_burnin_steps
+		self.Nsamples_per_state0 = cfg_samplerHMC.Nsamples_per_state0
+		self.initial_states_sampling = eval(cfg_samplerHMC.initial_states_sampling)
+		self.step_size_hmc = cfg_samplerHMC.step_size_hmc
+		self.num_leapfrog_steps_hmc = cfg_samplerHMC.num_leapfrog_steps_hmc
 		self.dim = dim
-
-		try:
-			int(self.num_burnin_steps * 0.8)
-		except:
-			pdb.set_trace()
-		else:
-			print("good!!!!!!!!!!!!!!!!!!! initttt")
 
 		assert self.Nsamples_per_state0 % 2 == 0, "Need an even number, for now"
 
@@ -37,15 +31,15 @@ class SpectralDensityBase(ABC):
 	def unnormalized_density(self):
 		raise NotImplementedError
 
-	@abstractmethod
+	# @abstractmethod
 	def normalized_density(self):
 		raise NotImplementedError
 
-	@abstractmethod
+	# @abstractmethod
 	def log_normalized_density(self):
 		raise NotImplementedError
 
-	@abstractmethod
+	# @abstractmethod
 	def update_pars(self,args):
 		raise NotImplementedError
 
@@ -76,13 +70,6 @@ class SpectralDensityBase(ABC):
 
 
 		"""
-
-		try:
-			int(self.num_burnin_steps * 0.8)
-		except:
-			pdb.set_trace()
-		else:
-			print("good!!!!!!!!!!!!!!!!!!! initialize_HMCsampler")
 
 		logger.info("Initializing tfp.mcmc.HamiltonianMonteCarlo()...")
 		adaptive_hmc = tfp.mcmc.SimpleStepSizeAdaptation(	
@@ -142,5 +129,19 @@ class SpectralDensityBase(ABC):
 		Sw_vec_nor = Sw_vec
 
 		return W_samples_vec, Sw_vec_nor, phiw_vec
+
+	def get_normalization_constant_numerical(self,omega_vec):
+		"""
+
+		omega_vec: [Npoints,dim]
+		return:
+			const: scalar
+		"""
+
+		Sw, _ = self.unnormalized_density(omega_vec)
+		dw = omega_vec[1,0] - omega_vec[0,0]
+		const = tfp.math.trapz(y=Sw,dx=dw)
+
+		return const
 
 
