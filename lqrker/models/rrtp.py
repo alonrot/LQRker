@@ -263,7 +263,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX
 
-		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
+		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var() # A
 
 		# self.DBG_eigvals = tf.eigvals(tf.transpose(self.PhiX) @ self.PhiX)
 
@@ -382,6 +382,13 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		K11_inv = 1/var_noise*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
 		beta1 = tf.transpose(self.Y - self.M) @ ( K11_inv @ (self.Y - self.M) )
 		cov_beta_factor_sqrt = tf.sqrt( (self.nu + beta1 - 2) / (nu_pred-2) * var_noise )
+
+
+		# wishart_cholesky_to_iw_cholesky = tfp.bijectors.CholeskyToInvCholesky()
+		# Mchol = wishart_cholesky_to_iw_cholesky.forward(tf.transpose(self.Lchol))
+		# Mchol = wishart_cholesky_to_iw_cholesky.forward(self.Lchol)
+		aaa = tf.linalg.inv(tf.transpose(self.Lchol))
+		# pdb.set_trace()
 
 		cov_beta_chol = tf.linalg.inv(tf.transpose(self.Lchol)) * cov_beta_factor_sqrt
 		return mean_beta, cov_beta_chol
