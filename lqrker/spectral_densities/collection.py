@@ -73,7 +73,10 @@ class MaternSpectralDensity(SpectralDensityBase):
 		S_vec = self.const / ((self.lambda_val**2 + omega_in**2)**(self.nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
 
 		# Multiply dimensions (i.e., assume that matern density factorizes w.r.t omega input dimensionality). Also, pump variance into it:
-		S_vec = tf.reduce_prod(S_vec,axis=1)*self.prior_var
+		S_vec = tf.math.reduce_prod(S_vec,axis=1,keepdims=True)*self.prior_var
+
+		# Return copies of S(w), as many as input dimensions:
+		S_vec = tf.concat([S_vec]*self.dim,axis=1)
 
 		if log == True:
 			return tf.math.log(S_vec)
@@ -102,11 +105,12 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		self.volume_x = (x_lim_max - x_lim_min)**self.dim # Assume hypercube
 
 		# pdb.set_trace()
-		xdata = tf.linspace(x_lim_min,x_lim_max,Nsteps_integration)
+		xdata_aux = tf.linspace(x_lim_min,x_lim_max,Nsteps_integration)
+		xgrid_data = tf.meshgrid(*([xdata_aux]*self.dim))
+		self.xdata = tf.reshape(xgrid_data,(-1,self.dim)) # [Nsteps,dim]
 		self.dX = (x_lim_max - x_lim_min) / Nsteps_integration
-		self.xdata = tf.reshape(xdata,(-1,self.dim)) # [Nsteps,dim]
-		# self.fdata = self._kink_fun(self.xdata) # [Nsteps,1] (since this is a scalar system, we only have one channel)
-		self.fdata = self._nonlinear_system_fun(self.xdata) # [Nsteps,1] (since this is a scalar system, we only have one channel)
+		self.fdata = self._nonlinear_system_fun(self.xdata) # [Nsteps,dim]
+
 
 	def unnormalized_density(self,omega_in,log=False):
 		"""
@@ -115,7 +119,7 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		return: S_vec [Nfeat,]
 		"""
 
-		Sw_vec, phiw_vec = self._MVFourierTransform(omega_in) # [Nfeat,]
+		Sw_vec, phiw_vec = self._MVFourierTransform(omega_in) # [Nfeat,dim]
 
 		if log == True:
 			return tf.math.log(Sw_vec)
@@ -127,19 +131,26 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 
 		omega_vec: [Npoints,dim]
 		return:
-			Sw: [Npoints,]
-			phiw: [Npoints,]
+			Sw: [Npoints,dim]
+			phiw: [Npoints,dim]
 		"""
 
-		omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
-		part_real = tfp.math.trapz(y=tf.math.cos(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
-		part_imag = tfp.math.trapz(y=tf.math.sin(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
+		if omega_vec.shape[1] == 1:
+			omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
+			part_real = tfp.math.trapz(y=tf.math.cos(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
+			part_imag = tfp.math.trapz(y=tf.math.sin(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
+		else:
+
+			omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
+			M = omega_times_X.shape[1]
+			part_real = tf.math.cos(omega_times_X) @ self.fdata / M # Monte Carlo sum, [Npoints,dim]
+			part_imag = tf.math.sin(omega_times_X) @ self.fdata / M # Monte Carlo sum, [Npoints,dim]
 
 		# Modulus (spectral density):
-		Sw = tf.math.sqrt(part_real**2 + part_imag**2) # [Npoints]
+		Sw = tf.math.sqrt(part_real**2 + part_imag**2) # [Npoints,dim]
 
 		# Argument:
-		phiw = tf.math.atan2(y=-part_imag,x=part_real) # [Npoints]
+		phiw = tf.math.atan2(y=-part_imag,x=part_real) # [Npoints,dim]
 
 		return Sw, phiw
 
@@ -147,11 +158,31 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 	def _nonlinear_system_fun(self,x):
 		raise NotImplementedError
 
+	# def _monte_carlo_sum_approx_single_point(self,omega_in,Xdata,fXdata):
+	# 	"""
+
+	# 	omega_in: [1,dim]
+	# 	Xdata: [Npoints,dim]
+	# 	fXdata: [Npoints]
+
+	# 	"""
+
+	# 	M = Xdata.shape[0]
+	# 	sum_all = tf.math.sum(fXdata**2)
+	# 	for ii in range(M):
+	# 		for jj in range(ii+1,M):
+	# 			sum_all += 2.*fXdata[ii]*fXdata[jj]*tf.math.cos(omega_in @ (Xdata[ii:ii+1,:] - Xdata[jj:jj+1,:]))
+
+	# 	sum_all = sum_all / M**2
+
+	# 	return sum_all
+
 
 
 class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		assert dim == 1
 		super().__init__(cfg,cfg_sampler,dim)
 
 	def _nonlinear_system_fun(self,x):
@@ -159,31 +190,27 @@ class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 
 		Kink function, as described in [1]
 
-		[1] Ialongo, A.D., Van Der Wilk, M., Hensman, J. and Rasmussen, C.E., 2019, May. Overcoming mean-field approximations in recurrent Gaussian process models. In International Conference on Machine Learning (pp. 2931-2940). PMLR.
+		[1] Ialongo, A.D., Van Der Wilk, M., Hensman, J. and Rasmussen, C.E., 2019, May. 
+		Overcoming mean-field approximations in recurrent Gaussian process models. In International Conference on Machine Learning (pp. 2931-2940). PMLR.
 		"""
 		return 0.8 + (x + 0.2)*(1. - 5./(1 + tf.math.exp(-2.*x)) )
 
 
-
-
-class ParabolaSpectralDensity(NonLinearSystemSpectralDensity):
+class ParaboloidSpectralDensity(NonLinearSystemSpectralDensity):
 
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
 		super().__init__(cfg,cfg_sampler,dim)
 
 	def _nonlinear_system_fun(self,x):
-		return x**2
-
-# class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
-	# def controlled_dynamics(x, y, u1, u2):
-	#     x_dot =-y + u1
-	#     y_dot = x - y + (x**2)*y + u2
-	#     # unstable fixed-point
-	#     return x_dot, y_dot
+		"""
+		x: [Npoints,self.dim]
+		"""
+		return tf.math.reduce_sum(x**2,axis=1)
 
 class NoNameSpectralDensity(NonLinearSystemSpectralDensity):
 
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		assert dim == 1
 		super().__init__(cfg,cfg_sampler,dim)
 
 	def _nonlinear_system_fun(self,x,u=0.):
@@ -206,9 +233,10 @@ class NoNameSpectralDensity(NonLinearSystemSpectralDensity):
 class KinkSharpSpectralDensity(NonLinearSystemSpectralDensity):
 
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		assert dim == 1
 		super().__init__(cfg,cfg_sampler,dim)
 
-	def _nonlinear_system_fun(self,x,u=0.):
+	def _nonlinear_system_fun(self,x):
 
 		"""
 
@@ -232,6 +260,32 @@ class KinkSharpSpectralDensity(NonLinearSystemSpectralDensity):
 		# return self.a*x + self.b*x / (1. + x**2) + self.c*u
 
 
+class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+		
+		assert dim == 2
+		self.deltaT = cfg.deltaT
+		super().__init__(cfg,cfg_sampler,dim)
+
+
+	def _nonlinear_system_fun(self,x):
+		"""
+		x: [Npoints,self.dim]
+		"""
+
+		return self._controlled_dynamics(x=x[:,0:1],y=x[:,1::],u1=0.,u2=0.)
+
+	def _controlled_dynamics(self,x, y, u1, u2):
+	    
+	    x_dot =-y + u1
+	    y_dot = x - y + (x**2)*y + u2
+
+	    x_next = x_dot*self.deltaT + x
+	    y_next = y_dot*self.deltaT + y
+	    xy_next = tf.concat([x_next,y_next],axis=1)
+
+	    return xy_next
 
 
 	# def _log_prob(self,value):

@@ -22,10 +22,9 @@ class SpectralDensityBase(ABC):
 		self.step_size_hmc = cfg_samplerHMC.step_size_hmc
 		self.num_leapfrog_steps_hmc = cfg_samplerHMC.num_leapfrog_steps_hmc
 		self.dim = dim
-
 		assert self.Nsamples_per_state0 % 2 == 0, "Need an even number, for now"
-
 		self.adaptive_hmc = None
+		self.Sw_points, self.phiw_points, self.W_points = None, None, None
 
 	@abstractmethod
 	def unnormalized_density(self):
@@ -115,7 +114,24 @@ class SpectralDensityBase(ABC):
 
 		return samples
 
-	def get_samples(self,Nsamples=None):
+	def get_normalization_constant_numerical(self,omega_vec):
+		"""
+
+		omega_vec: [Npoints,dim]
+		return:
+			const: scalar
+		"""
+
+		assert omega_vec.shape[1] == 1, "Not ready for dim > 1 !!!"
+		assert self.dim == 1, "Not ready for dim > 1 !!!"
+
+		Sw, _ = self.unnormalized_density(omega_vec)
+		dw = omega_vec[1,0] - omega_vec[0,0]
+		const = tfp.math.trapz(y=Sw,dx=dw)
+
+		return const
+
+	def get_Wsamples_from_Sw(self,Nsamples=None):
 
 		# Get samples:
 		log_likelihood_fn = lambda omega_in: self.unnormalized_density(omega_in,log=True)
@@ -128,20 +144,44 @@ class SpectralDensityBase(ABC):
 		# Sw_vec_nor = Sw_vec / tf.math.reduce_sum(Sw_vec)
 		Sw_vec_nor = Sw_vec
 
-		return W_samples_vec, Sw_vec_nor, phiw_vec
+		return Sw_vec_nor, phiw_vec, W_samples_vec
 
-	def get_normalization_constant_numerical(self,omega_vec):
+	def get_Wpoints_on_regular_grid(self,omega_min=-5.,omega_max=+5.,Ndiv=51,normalize_density_numerically=False,reshape_for_plotting=False):
 		"""
 
-		omega_vec: [Npoints,dim]
-		return:
-			const: scalar
+		return (with reshape_for_plotting=False):
+			Sw_vec: [Nfeatures,self.dim]
+			phiw_vec: [Nfeatures,self.dim]
+			omegapred: [Nfeatures,self.dim]
+
+			Nfeatures = Ndiv**self.dim
+
 		"""
 
-		Sw, _ = self.unnormalized_density(omega_vec)
-		dw = omega_vec[1,0] - omega_vec[0,0]
-		const = tfp.math.trapz(y=Sw,dx=dw)
+		omegapred_aux = tf.linspace(omega_min,omega_max,Ndiv)
+		omegapredgrid_data = tf.meshgrid(*([omegapred_aux]*self.dim),indexing="ij")
+		omegapred = tf.concat([tf.reshape(omegapredgrid_data_el,(-1,1)) for omegapredgrid_data_el in omegapredgrid_data],axis=1)
+		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
 
-		return const
+		if normalize_density_numerically:
+			normalization_constant_kernel = self.get_normalization_constant_numerical(omegapred)
+			logger.info("normalization_constant_kernel: "+str(normalization_constant_kernel))
+			Sw_vec = Sw_vec / normalization_constant_kernel
 
+		if reshape_for_plotting:
+
+			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+			Sw_vec = np.stack(S_vec_plotting) # [dim, Ndiv, Ndiv]
+
+			if np.any(phiw_vec != 0.0):
+				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+				phiw_vec = np.stack(phiw_vec_plotting) # [dim, Ndiv, Ndiv]
+
+		return Sw_vec, phiw_vec, omegapred
+
+	def update_Wsamples(self,Nsamples=None):
+		self.Sw_points, self.phiw_points, self.W_points = self.get_Wsamples_from_Sw(Nsamples)
+
+	def update_Wpoints_regular(self,omega_min=-5.,omega_max=+5.,Ndiv=51,normalize_density_numerically=False,reshape_for_plotting=False):
+		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_on_regular_grid(omega_min,omega_max,Ndiv,normalize_density_numerically,reshape_for_plotting)
 

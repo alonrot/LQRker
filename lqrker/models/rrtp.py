@@ -11,6 +11,8 @@ import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
+from lqrker.spectral_densities.base import SpectralDensityBase
+
 # import warnings
 # warnings.filterwarnings("error")
 
@@ -49,7 +51,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
 	"""
 	# def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
-	def __init__(self, dim: int, cfg: dict, **kwargs):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0, **kwargs):
 		"""
 		
 		dim: Dimensionality of the input space
@@ -57,18 +59,17 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		L: Half Length of the hypercube. Each dimension has length [-L, L]
 		"""
 
-		logger.info("Initializing ReducedRankStudentTProcessBase() class ...")
-
 		super().__init__(**kwargs)
 
 		self.dim = dim
 		assert cfg.hyperpars.nu > 2, "Requirement: nu > 2"
 		self.nu = cfg.hyperpars.nu # Related to t-Student's distribution
-		Nfeat = cfg.hyperpars.weights_features.Nfeat
 		sigma_n_init = cfg.hyperpars.sigma_n.init
 
+		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
+		
 		# Specify weights:
-		# self.log_diag_vals = self.add_weight(shape=(Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
+		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
 		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(sigma_n_init)), trainable=True,name="log_noise_std")
 
 		# Learning parameters:
@@ -76,11 +77,36 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.epochs = cfg.learning.epochs
 		self.stop_loss_val = cfg.learning.stopping_condition.loss_val
 
-		self.sample_mvt0 = None # TODO: Refactor this
-
 		# No data case:
 		self.X = None
 		self.Y = None
+
+
+
+
+
+		# ----------------------------------------------------------------------------------------------------------
+		# Parameters only relevant to child classes
+		# ----------------------------------------------------------------------------------------------------------
+
+		# Spectral density to be used:
+		self.spectral_density = spectral_density
+
+		# This model assumes a dim-dimensional input and a scalar output.
+		# We need to select the output we care about for the spectral density points:
+		self.select_output_dimension(dim_out_int)
+		
+		self.S_samples_vec = self.spectral_density.Sw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
+		self.phi_samples_vec = self.spectral_density.phiw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
+		self.W_samples = self.spectral_density.W_points # [Npoints,self.dim]
+
+		# ----------------------------------------------------------------------------------------------------------
+		# ----------------------------------------------------------------------------------------------------------
+
+
+	def select_output_dimension(self,dim_out_ind):
+		assert dim_out_ind >= 0 and dim_out_ind <= self.dim
+		self.dim_out_ind = dim_out_ind
 
 	def add2dataset(self,xnew,ynew):
 		pass
@@ -265,8 +291,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var() # A
 
-		# self.DBG_eigvals = tf.eigvals(tf.transpose(self.PhiX) @ self.PhiX)
-
 		logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
 		try:
 			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
@@ -434,7 +458,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
 
-
 		logger.info("Computing matrix of features Phi(xpred) ...")
 		Phi_pred = self.get_features_mat(xpred)
 
@@ -449,13 +472,12 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
 
-		# mean_beta, cov_beta_chol = self.get_predictive_beta_distribution()
 		Nfeat = cov_beta_chol.shape[0]
 		sample_mvt0 = self.get_sample_mvt0(Nfeat,Nsamples)
 		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mvt0
 
 		def nonlinfun_sampled_callable(x):
-			return self.get_features_mat(x) @ aux
+			return self.get_features_mat(x) @ aux # [Npoints,Nsamples]
 
 		return nonlinfun_sampled_callable
 
@@ -463,6 +485,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		xpred: [Npoints,self.dim]
+		sample_xpred: [Npoints,Nsamples]
 
 		"""
 
@@ -478,10 +501,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		x0: [1,self.dim]
 		x1: [1,self.dim]
 
-		Assume that the GP hasn't been trained, and won't be trained during sampling
-
-		NOTE: This is an expensive operation
-
+		The GP won't be training during sampling, i.e., we won't call self.train_model()
 		"""
 
 		xmin = -6.

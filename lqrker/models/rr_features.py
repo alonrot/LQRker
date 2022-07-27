@@ -3,6 +3,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import math
 import pdb
+import numpy as np
 
 from lqrker.models.rrtp import ReducedRankStudentTProcessBase
 from lqrker.spectral_densities.base import SpectralDensityBase
@@ -10,8 +11,185 @@ from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
 
+class MultiObjectiveRRTPRegularFourierFeatures():
+
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain):
+
+		"""
+		
+		Initialize "dim" number of RRTPRegularFourierFeatures() models, one per output channel		
+		"""
+
+		self.dim_in = dim
+		self.dim_out = dim
+
+		# We use a single spectral density instance for all the models. For that instance, we compute the needed frequencies
+		# and use them throughout all the models
+		self.spectral_density = spectral_density 
+
+		self.rrgpMO = [None]*self.dim_out
+		for ii in range(self.dim_out):
+			self.rrgpMO[ii] = RRTPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			self.rrgpMO[ii].select_output_dimension(dim_out_ind=ii)
+
+		self.update_model(X=Xtrain,Y=Ytrain)
+
+		self.X = Xtrain
+		self.Y = Ytrain
+
+
+	def update_model(self,X,Y):
+		for ii in range(self.dim_out):
+			self.rrgpMO[ii].update_model(X,Y[:,ii:ii+1]) # Update model indexing the target outputs at the corresponding dimension
+
+	def predict_at_locations(self,xpred,from_prior=False):
+		"""
+
+		xpred: [Npoints,self.dim]
+
+		"""
+
+		MO_mean_pred = [None]*self.dim_out
+		MO_std_pred = [None]*self.dim_out
+
+		# Compute predictive moments:
+		for ii in range(self.dim_out):
+			MO_mean_pred[ii], cov_pred = self.rrgpMO[ii].predict_at_locations(xpred)
+			MO_std_pred[ii] = tf.sqrt(tf.linalg.diag_part(cov_pred))
+
+		return MO_mean_pred, MO_std_pred
+
+
+	def sample_path_from_predictive(self,xpred,Nsamples,from_prior=False):
+		"""
+
+		xpred: [Npoints,self.dim]
+		samples_xpred: [Npoints,]*self.dim_out
+
+		"""
+
+		samples_xpred = [None]*self.dim_out
+		for ii in range(self.dim_out):
+			samples_xpred[ii] = self.rrgpMO[ii].sample_path_from_predictive(xpred,Nsamples,from_prior)
+
+		return samples_xpred
+
+
+	def get_sample_path_callable(self,Nsamples,from_prior=False):
+
+		def nonlinfun_sampled_callable(x):
+
+			out = []
+			for ii in range(self.dim_out):
+				fx_ii = self.rrgpMO[ii].get_sample_path_callable(Nsamples,from_prior)
+				out_ii = fx_ii(x) # [Npoints,Nsamples]
+				out += [out_ii]
+
+			return tf.stack(out,axis=1) # [Npoints,self.dim_out,Nsamples]
+
+		return nonlinfun_sampled_callable
+
+	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,sort=False,plotting=False):
+		"""
+
+		Pass two initial latent values
+		x0: [1,self.dim]
+		x1: [1,self.dim]
+
+		The GP won't be training during sampling, i.e., we won't call self.train_model()
+
+
+		return:
+		xsamples_X: [Npoints,self.dim_out,Nsamples]
+		xsamples_Y: [Npoints,self.dim_out,Nsamples]
+
+		"""
+
+		# xmin = -6.
+		# xmax = +3.
+		# Ndiv = 201
+		# xpred = tf.linspace(xmin,xmax,Ndiv)
+		# xpred = tf.reshape(xpred,(-1,1))
+
+		Nsamples = 1
+		assert Nsamples == 1
+		fx = self.get_sample_path_callable(Nsamples=Nsamples)
+
+		# yplot_true_fun = self.spectral_density._nonlinear_system_fun(xpred)
+		# yplot_sampled_fun = fx(xpred)
+
+		assert traj_length > 2
+
+		Xtraining = tf.identity(self.X) # Copy tensor
+		Ytraining = tf.identity(self.Y) # Copy tensor
+		Xtraining_and_new = tf.concat([Xtraining,x0],axis=0)
+		Ytraining_and_new = tf.concat([Ytraining,x1],axis=0)
+		self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
+
+		if plotting:
+			hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(12,8),sharex=True)
+			hdl_fig.suptitle(r"Kink function simulation $x_{t+1} = f(x_t) + \varepsilon$"+", kernel: {0}".format("kink"),fontsize=fontsize_labels)
+
+		xsamples = np.zeros((traj_length,self.dim_out,Nsamples),dtype=np.float32)
+		xsamples[0,:,0] = x0
+		xsamples[1,:,0] = x1
+		resample_mvt0 = True
+		for ii in range(1,traj_length-1):
+
+			xsample_tp = tf.convert_to_tensor(value=xsamples[ii:ii+1,:,0],dtype=np.float32)
+
+			if ii > 1: 
+				resample_mvt0 = False
+
+			# xsamples[ii+1,:] = self.sample_path_from_predictive(xpred=xsample_tp,Nsamples=Nsamples,resample_mvt0=resample_mvt0)
+			xsamples[ii+1,...] = fx(xsample_tp)
+
+			Xnew = tf.convert_to_tensor(value=xsamples[0:ii,:,0],dtype=np.float32)
+			Ynew = tf.convert_to_tensor(value=xsamples[1:ii+1,:,0],dtype=np.float32)
+
+			Xtraining_and_new = tf.concat([Xtraining,Xnew],axis=0)
+			Ytraining_and_new = tf.concat([Ytraining,Ynew],axis=0)
+			self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
+
+			if plotting:
+				# Plot what's going on at each iteration here:
+				MO_mean_pred, cov_pred = self.predict_at_locations(xpred)
+				MO_std_pred = tf.sqrt(tf.linalg.diag_part(cov_pred))
+				hdl_splots[0].cla()
+				hdl_splots[0].plot(xpred,MO_mean_pred,linestyle="-",color="b",lw=3)
+				hdl_splots[0].fill_between(xpred[:,0],MO_mean_pred - 2.*MO_std_pred,MO_mean_pred + 2.*MO_std_pred,color="cornflowerblue",alpha=0.5)
+				hdl_splots[0].plot(Xnew[:,0],Ynew[:,0],marker=".",linestyle="--",color="gray",lw=0.5,markersize=5)
+				# hdl_splots[0].set_xlim([xmin,xmax])
+				hdl_splots[0].set_ylabel(r"$x_{t+1}$",fontsize=fontsize_labels)
+				# hdl_splots[0].plot(xpred,yplot_true_fun,marker="None",linestyle="-",color="grey",lw=1)
+				# hdl_splots[0].plot(xpred,yplot_sampled_fun,marker="None",linestyle="--",color="r",lw=0.5)
+
+				plt.pause(0.1)
+				# input()
+
+		xsamples_X = xsamples[0:-1,:]
+		xsamples_Y = xsamples[1::,:]
+
+		if sort:
+			assert x0.shape[1] == 1, "This only makes sense in 1D"
+			ind_sort = tf.argsort(xsamples_X[:,0],axis=0)
+			# pdb.set_trace()
+			xsamples_X = xsamples_X[ind_sort,:]
+			xsamples_Y = xsamples_Y[ind_sort,:]
+
+		# Go back to the dataset at it was:
+		self.update_model(X=Xtraining,Y=Ytraining)
+
+		return xsamples_X, xsamples_Y
+
+
 class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 	"""
+
+	
+	This model assumes a dim-dimensional input and a scalar output.
+
+
 	
 	As described in [1, Sec. 2.3.3], which is analogous to [2].
 
@@ -20,39 +198,14 @@ class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 
 
 	TODO:
-	1) Maybe sample just a single vector, like in the jmlr paper
-	2) Think about optimizing weights somehow. Prior on spectral density with model?
 	3) Add other hyperparameters as trainable variables to the optimization
 	4) Refactor all this in different files
 	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
 	"""
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
 
-		super().__init__(dim,cfg)
-
-		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
-
-		# Spectral density to be used:
-		self.spectral_density = spectral_density
-
-	def update_spectral_density(self,args,state_ind):
-
-		# Get density and angle:
-		omega_min = -5.
-		omega_max = +5.
-		Ndiv = self.Nfeat
-		omegapred = tf.linspace(omega_min,omega_max,Ndiv)
-		omegapred = tf.reshape(omegapred,(-1,self.dim))
-		S_samples_vec, phi_samples_vec = self.spectral_density.unnormalized_density(omegapred) # [Nsamples,1,dim], [Nsamples,]
-		self.W_samples = omegapred
-
-		self.normalization_constant_kernel = self.spectral_density.get_normalization_constant_numerical(omegapred)
-		logger.info("normalization_constant_kernel: "+str(self.normalization_constant_kernel))
-
-		self.S_samples_vec = S_samples_vec / self.normalization_constant_kernel
-		self.phi_samples_vec = phi_samples_vec
-		self.u_samples = tfp.distributions.Uniform(low=0.0, high=2.*math.pi).sample(sample_shape=(1,self.Nfeat))
+		super().__init__(dim,cfg,spectral_density,dim_out_int)
 
 	def get_features_mat(self,X):
 		"""
@@ -62,44 +215,27 @@ class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 		"""
 
 		# pdb.set_trace()
-		WX = tf.transpose(self.W_samples @ tf.transpose(X)) # [Npoints, Nfeat]
-
-		# self.phi_samples_vec = 0.0
-		# harmonics_vec = tf.math.cos(WX + self.u_samples) # [Npoints, Nfeat], with random phases
-		harmonics_vec = tf.math.cos(WX + self.phi_samples_vec) # [Npoints, Nfeat]
+		WX = X @ tf.transpose(self.W_samples) # [Npoints, Nfeat]
+		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec)) # [Npoints, Nfeat]
 		harmonics_vec_scaled = harmonics_vec * tf.reshape(self.S_samples_vec,(1,-1)) # [Npoints, Nfeat]
 
 		return harmonics_vec_scaled
 
 	def get_cholesky_of_cov_of_prior_beta(self):
-		return tf.linalg.diag(tf.math.sqrt(self.S_samples_vec)) + tf.eye(self.Nfeat)*tf.math.sqrt(self.get_noise_var())
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec,(-1)) + self.get_noise_var()))
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var() * tf.linalg.diag(1./self.S_samples_vec)
+		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec,(-1)))
 
 	def get_logdetSigma_weights(self):
 		return tf.math.reduce_sum(tf.math.log(self.S_samples_vec))
 
 
-class RRTPRandomFourierFeatures(RRTPRegularFourierFeatures):
+class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
 
-		super().__init__(dim,cfg)
-
-		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
-
-		# Spectral density to be used:
-		self.spectral_density = spectral_density
-
-	def update_spectral_density(self,args,state_ind):
-
-		W_samples_vec, Sw_vec_nor, phiw_vec = self.spectral_density.get_samples()
-
-		self.W_samples = W_samples_vec
-		self.S_samples_vec = Sw_vec_nor
-		self.phi_samples_vec = phiw_vec
-		self.u_samples = tfp.distributions.Uniform(low=0.0, high=2.*math.pi).sample(sample_shape=(1,self.Nfeat))
+		super().__init__(dim,cfg,spectral_density,dim_out_int)
 
 	def get_features_mat(self,X):
 		"""
@@ -108,11 +244,9 @@ class RRTPRandomFourierFeatures(RRTPRegularFourierFeatures):
 		return: PhiX: [Npoints, Nfeat]
 		"""
 
+		u_samples = tfp.distributions.Uniform(low=0.0, high=2.*math.pi).sample(sample_shape=(1,self.Nfeat))
 		WX = tf.transpose(self.W_samples @ tf.transpose(X)) # [Npoints, Nfeat]
-
-		# self.phi_samples_vec = 0.0
-		# harmonics_vec = tf.math.cos(WX + self.u_samples) # [Npoints, Nfeat], with random phases
-		harmonics_vec = tf.math.cos(WX + self.phi_samples_vec) # [Npoints, Nfeat]
+		harmonics_vec = tf.math.cos(WX + u_samples) # [Npoints, Nfeat]
 
 		return harmonics_vec
 
@@ -243,7 +377,7 @@ class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
 	def __init__(self, dim: int, cfg: dict):
 
 		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
-		
+
 		super().__init__(dim,cfg)
 
 		# Get parameters:
