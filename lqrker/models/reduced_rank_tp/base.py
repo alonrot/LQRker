@@ -66,9 +66,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.nu = cfg.hyperpars.nu # Related to t-Student's distribution
 		sigma_n_init = cfg.hyperpars.sigma_n.init
 
-		self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		
 		# Specify weights:
+		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
 		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(sigma_n_init)), trainable=True,name="log_noise_std")
 
@@ -81,7 +81,13 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.X = None
 		self.Y = None
 
+		self.prior_beta_already_computed = False
+		self.predictive_beta_already_computed = False
 
+		self.mean_beta_predictive = None
+		self.chol_cov_beta_predictive = None
+		self.mean_beta_prior = None
+		self.chol_cov_beta_prior = None
 
 
 
@@ -266,6 +272,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self._update_dataset(X,Y)
 		self._update_features()
 
+		self.prior_beta_already_computed = False
+		self.predictive_beta_already_computed = False
+
 	def _update_dataset(self,X,Y):
 		self.X = X
 
@@ -283,44 +292,50 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		logger.info("Computing matrix of features PhiX ...")
-		self.PhiX = self.get_features_mat(self.X)
-		
-		# pdb.set_trace()
+		self.PhiX = self.get_features_mat(self.X)	
 
-		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX
+		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX	
+		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
-		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var() # A
+		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
+		AA_sym = AA_sym + tf.transpose(AA_sym)
+		AA_sym = self.fix_eigvals(AA_sym)
 
 		logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
-		try:
-			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
-		except Exception as inst:
+		self.Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
+
+		# try:
+		# 	# self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
+		# except Exception as inst:
 			
-			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			logger.info("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) || Fixing it...")
+		# 	logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
+		# 	logger.info("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) || Fixing it...")
 
-			# Fix it by modifying the hyperparameters:
-			# Extract the most negative eigenvalue:
-			aux2 = tf.math.real(tf.eigvals(PhiXTPhiX))
-			min_eigval_posi = tf.abs(tf.reduce_min(aux2))
-			min_eigval_posi = 1.1*min_eigval_posi
+		# 	pdb.set_trace()
 
-			# Add such eigenvalue as jitter:
-			if hasattr(self, 'log_diag_vals'):
-				self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
-				Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
-			else:
-				logger.info("Fixture only implemented for child classes where log_diag_vals is used.")
-				logger.info("For other classes, this fuxture needs to be implemented...")
+		# 	# # Fix it by modifying the hyperparameters:
+		# 	# # Extract the most negative eigenvalue:
+		# 	# aux2 = tf.math.real(tf.eigvals(PhiXTPhiX))
+		# 	# min_eigval_posi = tf.abs(tf.reduce_min(aux2))
+		# 	# min_eigval_posi = 1.1*min_eigval_posi
 
-			logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
-			self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
+		# 	# # Add such eigenvalue as jitter:
+		# 	# if hasattr(self, 'log_diag_vals'):
+		# 	# 	self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
+		# 	# 	Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
+		# 	# else:
+		# 	# 	logger.info("Fixture only implemented for child classes where log_diag_vals is used.")
+		# 	# 	logger.info("For other classes, this fuxture needs to be implemented...")
+
+		# 	# logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
+		# 	# # self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
+		# 	# self.Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
 			
-			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
-			# bbb = tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var + min_eigval*tf.eye(self.PhiX.shape[1])
-			# bbb2 = tf.math.real(tf.eigvals(bbb))
-			# logger.info("bbb2:",bbb2)
-			# pdb.set_trace()
+		# 	# # raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
+		# 	# # bbb = tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var + min_eigval*tf.eye(self.PhiX.shape[1])
+		# 	# # bbb2 = tf.math.real(tf.eigvals(bbb))
+		# 	# # logger.info("bbb2:",bbb2)
+		# 	# # pdb.set_trace()
 
 		# Prior mean:
 		self.M = tf.zeros((self.X.shape[0],1))
@@ -391,6 +406,10 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		TODO: Make sure this is the right way of inclduing the prior mean
 		"""
 
+		if self.predictive_beta_already_computed:
+			logger.info("predictive_beta_distribution doesn't need to be recomputed because the dataset was never updated")
+			return self.mean_beta_predictive, self.chol_cov_beta_predictive
+
 		# Get mean:
 		PhiXY = tf.transpose(self.PhiX) @ (self.Y - self.M)
 		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY)
@@ -411,10 +430,15 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# wishart_cholesky_to_iw_cholesky = tfp.bijectors.CholeskyToInvCholesky()
 		# Mchol = wishart_cholesky_to_iw_cholesky.forward(tf.transpose(self.Lchol))
 		# Mchol = wishart_cholesky_to_iw_cholesky.forward(self.Lchol)
-		aaa = tf.linalg.inv(tf.transpose(self.Lchol))
+		# aaa = tf.linalg.inv(tf.transpose(self.Lchol))
 		# pdb.set_trace()
 
 		cov_beta_chol = tf.linalg.inv(tf.transpose(self.Lchol)) * cov_beta_factor_sqrt
+
+		self.predictive_beta_already_computed = True
+		self.mean_beta_predictive = mean_beta
+		self.chol_cov_beta_predictive = cov_beta_chol
+
 		return mean_beta, cov_beta_chol
 
 	def get_prior_beta_distribution(self):
@@ -431,12 +455,20 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		[2] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In *Artificial intelligence and statistics* (pp. 877-885). PMLR.
 
 		"""
+
+		if self.prior_beta_already_computed:
+			logger.info("prior_beta_distribution doesn't need to be recomputed because the dataset was never updated")
+			return self.mean_beta_prior, self.chol_cov_beta_prior
 		
 		# Get prior cov:
 		chol_cov_beta_prior = self.get_cholesky_of_cov_of_prior_beta() * tf.math.sqrt( (self.nu) / (self.nu - 2.) )
 
 		# Get prior mean:
 		mean_beta_prior = tf.zeros((chol_cov_beta_prior.shape[0],1))
+
+		self.prior_beta_already_computed = True
+		self.mean_beta_prior = mean_beta_prior
+		self.chol_cov_beta_prior = chol_cov_beta_prior
 
 		return mean_beta_prior, chol_cov_beta_prior
 
@@ -579,6 +611,37 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return xsamples_X, xsamples_Y
 
+	def get_sample_mvt0(self,Npred,Nsamples):
+		"""
+		Sample a path from MVT(nu,0,I)
+		Using: (i) uniform sphere, (ii) inverse gamma, and (iii) Chi-squared
+
+		return: [Npred,Nsamples]
+
+		[1] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes
+		as alternatives to Gaussian processes. In Artificial intelligence and
+		statistics (pp. 877-885). PMLR.
+		"""
+
+		# Sample from unit sphere:
+		dist_sphe = tfp.distributions.SphericalUniform(dimension=Npred)
+		sample_sphe = dist_sphe.sample(sample_shape=(Nsamples,))
+
+		# Sample from inverse Gamma:
+		alpha = 0.5*self.nu
+		beta = 0.5
+		dist_ig = tfp.distributions.InverseGamma(concentration=alpha,scale=beta)
+		sample_ig = dist_ig.sample(sample_shape=(Nsamples,1))
+
+		# Sample from chi-squared:
+		dist_chi2 = tfp.distributions.Chi2(df=Npred)
+		sample_chi2 = dist_chi2.sample(sample_shape=(Nsamples,1))
+
+		# Sample from MVT(nu,0,I):
+		sample_mvt0 = tf.math.sqrt((self.nu-2) * sample_chi2 * sample_ig) * sample_sphe
+
+		return tf.transpose(sample_mvt0) # [Npred,Nsamples]
+
 	def get_predictive_entropy_of_truncated_dist(self):
 		"""
 
@@ -615,37 +678,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		entropy = 0.5*tf.math.log( tf.linalg.diag_part(cov_pred) )
 
 		return entropy
-
-	def get_sample_mvt0(self,Npred,Nsamples):
-		"""
-		Sample a path from MVT(nu,0,I)
-		Using: (i) uniform sphere, (ii) inverse gamma, and (iii) Chi-squared
-
-		return: [Npred,Nsamples]
-
-		[1] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes
-		as alternatives to Gaussian processes. In Artificial intelligence and
-		statistics (pp. 877-885). PMLR.
-		"""
-
-		# Sample from unit sphere:
-		dist_sphe = tfp.distributions.SphericalUniform(dimension=Npred)
-		sample_sphe = dist_sphe.sample(sample_shape=(Nsamples,))
-
-		# Sample from inverse Gamma:
-		alpha = 0.5*self.nu
-		beta = 0.5
-		dist_ig = tfp.distributions.InverseGamma(concentration=alpha,scale=beta)
-		sample_ig = dist_ig.sample(sample_shape=(Nsamples,1))
-
-		# Sample from chi-squared:
-		dist_chi2 = tfp.distributions.Chi2(df=Npred)
-		sample_chi2 = dist_chi2.sample(sample_shape=(Nsamples,1))
-
-		# Sample from MVT(nu,0,I):
-		sample_mvt0 = tf.math.sqrt((self.nu-2) * sample_chi2 * sample_ig) * sample_sphe
-
-		return tf.transpose(sample_mvt0) # [Npred,Nsamples]
 
 
 	def call(self, inputs):

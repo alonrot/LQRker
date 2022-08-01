@@ -168,7 +168,7 @@ class SpectralDensityBase(ABC):
 			logger.info("normalization_constant_kernel: "+str(normalization_constant_kernel))
 			Sw_vec = Sw_vec / normalization_constant_kernel
 
-		if reshape_for_plotting:
+		if reshape_for_plotting and self.dim == 2:
 
 			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
 			Sw_vec = np.stack(S_vec_plotting) # [dim, Ndiv, Ndiv]

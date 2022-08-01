@@ -9,95 +9,16 @@ from lqrker.spectral_densities.base import SpectralDensityBase
 logger = get_logger(__name__)
 
 
-class SquaredExponentialSpectralDensity(SpectralDensityBase):
-
-	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
-		super().__init__(cfg_sampler,dim)
-
-		# Parameters:
-		self.ls = cfg.ls*1.0
-		self.prior_var = cfg.prior_var*1.0
-
-		# Constant parameters:
-		self.const = (2.*math.pi*self.ls**2)**(self.dim/2)
-
-	def unnormalized_density(self,omega_in,log=False):
-		"""
-		in: omega_in [Nfeat,dim]
-		return: S_vec [Nfeat,]
-
-		Using now the N-dimensional formulation from Rasmussen
-
-		Outputs a vector 
-
-		Matern kernel spectral density
-		"""
-
-		S_vec = self.const * tf.math.exp(-2.*(math.pi*self.ls*omega_in)**2)
-
-		# Multiply dimensions (i.e., assume that matern density factorizes w.r.t omega input dimensionality). Also, pump variance into it:
-		S_vec = tf.reduce_prod(S_vec,axis=1)*self.prior_var
-
-		if log == True:
-			return tf.math.log(S_vec)
-
-		return S_vec, 0.0
-
-class MaternSpectralDensity(SpectralDensityBase):
-
-	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
-		super().__init__(cfg_sampler,dim)
-
-		# Parameters:
-		self.nu = cfg.nu*1.0
-		assert self.nu > 2.0, "nu must be > 2"
-		self.ls = cfg.ls*1.0
-		self.prior_var = cfg.prior_var*1.0
-
-		# Constant parameters:
-		self.lambda_val = tf.sqrt(2*self.nu)/self.ls
-		self.const = ((2*tf.sqrt(math.pi))**self.dim)*tf.exp(tf.math.lgamma(self.nu+0.5*self.dim))*self.lambda_val**(2*self.nu) / tf.exp(tf.math.lgamma(self.nu))
-
-	def unnormalized_density(self,omega_in,log=False):
-		"""
-		in: omega_in [Nfeat,dim]
-		return: S_vec [Nfeat,]
-
-		Using now the N-dimensional formulation from Rasmussen
-
-		Outputs a vector 
-
-		Matern kernel spectral density
-		"""
-
-		S_vec = self.const / ((self.lambda_val**2 + omega_in**2)**(self.nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
-
-		# Multiply dimensions (i.e., assume that matern density factorizes w.r.t omega input dimensionality). Also, pump variance into it:
-		S_vec = tf.math.reduce_prod(S_vec,axis=1,keepdims=True)*self.prior_var
-
-		# Return copies of S(w), as many as input dimensions:
-		S_vec = tf.concat([S_vec]*self.dim,axis=1)
-
-		if log == True:
-			return tf.math.log(S_vec)
-
-		return S_vec, 0.0
-
-	def _nonlinear_system_fun(self,x):
-		return tf.zeros(x.shape)
-
 class NonLinearSystemSpectralDensity(SpectralDensityBase):
 # class NonLinearSystemSpectralDensity(tfp.distributions.distribution.AutoCompositeTensorDistribution,SpectralDensityBase):
 
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
 		super().__init__(cfg_sampler,dim)
 
-		assert cfg.prior_var > 0.0
 		assert cfg.x_lim_max > cfg.x_lim_min
 		assert cfg.Nsteps_integration > 3
 
 		# Parameters:
-		self.prior_var = cfg.prior_var*1.0
 		x_lim_min = cfg.x_lim_min # -5.0
 		x_lim_max = cfg.x_lim_max # +2.0
 		Nsteps_integration = cfg.Nsteps_integration # 401
@@ -116,7 +37,9 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		"""
 		
 		in: omega_in [Nfeat,dim]
-		return: S_vec [Nfeat,]
+		return: 
+			Sw_vec [Nfeat,dim]
+			phiw_vec [Nfeat,dim]
 		"""
 
 		Sw_vec, phiw_vec = self._MVFourierTransform(omega_in) # [Nfeat,dim]
@@ -135,10 +58,16 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 			phiw: [Npoints,dim]
 		"""
 
-		if omega_vec.shape[1] == 1:
+		assert omega_vec.shape[1] == self.dim
+
+		if self.dim == 1:
 			omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
 			part_real = tfp.math.trapz(y=tf.math.cos(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
 			part_imag = tfp.math.trapz(y=tf.math.sin(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
+
+			part_real = tf.reshape(part_real,(-1,1))
+			part_imag = tf.reshape(part_imag,(-1,1))
+
 		else:
 
 			omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
@@ -186,6 +115,10 @@ class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 		super().__init__(cfg,cfg_sampler,dim)
 
 	def _nonlinear_system_fun(self,x):
+		return self.kink_dynamics(x)
+
+	@staticmethod
+	def kink_dynamics(x):
 		"""
 
 		Kink function, as described in [1]
@@ -194,6 +127,7 @@ class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 		Overcoming mean-field approximations in recurrent Gaussian process models. In International Conference on Machine Learning (pp. 2931-2940). PMLR.
 		"""
 		return 0.8 + (x + 0.2)*(1. - 5./(1 + tf.math.exp(-2.*x)) )
+
 
 
 class ParaboloidSpectralDensity(NonLinearSystemSpectralDensity):

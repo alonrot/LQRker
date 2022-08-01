@@ -1,0 +1,3 @@
+from .reduced_rank_tp.base import ReducedRankStudentTProcessBase
+from .reduced_rank_tp.features import RRTPRegularFourierFeatures, RRTPRandomFourierFeatures
+from .reduced_rank_tp.MOrrtp import MultiObjectiveRRTPRegularFourierFeatures
