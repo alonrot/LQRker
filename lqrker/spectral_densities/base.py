@@ -1,8 +1,10 @@
 import tensorflow as tf
 import pdb
+import math
 from abc import ABC, abstractmethod
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
+from ood.utils.common import CommonUtils
 import numpy as np
 logger = get_logger(__name__)
 
@@ -122,12 +124,9 @@ class SpectralDensityBase(ABC):
 			const: scalar
 		"""
 
-		assert omega_vec.shape[1] == 1, "Not ready for dim > 1 !!!"
-		assert self.dim == 1, "Not ready for dim > 1 !!!"
-
 		Sw, _ = self.unnormalized_density(omega_vec)
-		dw = omega_vec[1,0] - omega_vec[0,0]
-		const = tfp.math.trapz(y=Sw,dx=dw)
+		Dw_prod = (omega_vec[1,-1] - omega_vec[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+		const = tf.math.reduce_sum(Sw*Dw_prod,axis=0) # [self.dim,]
 
 		return const
 
@@ -146,6 +145,35 @@ class SpectralDensityBase(ABC):
 
 		return Sw_vec_nor, phiw_vec, W_samples_vec
 
+
+	def get_Wpoints_discrete(self,L,Ndiv,normalize_density_numerically=False,reshape_for_plotting=False):
+
+		assert Ndiv % 2 != 0 and Ndiv > 2, "Ndiv must be an odd positive integer"
+
+		j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
+
+		omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
+
+		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
+
+		if normalize_density_numerically:
+			raise NotImplementedError("Check for dim > 1")
+			normalization_constant_kernel = self.get_normalization_constant_numerical(omegapred)
+			logger.info("normalization_constant_kernel: "+str(normalization_constant_kernel))
+			Sw_vec = Sw_vec / normalization_constant_kernel
+
+		if reshape_for_plotting and self.dim == 2:
+
+			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+			Sw_vec = np.stack(S_vec_plotting) # [dim, Ndiv, Ndiv]
+
+			if np.any(phiw_vec != 0.0):
+				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+				phiw_vec = np.stack(phiw_vec_plotting) # [dim, Ndiv, Ndiv]
+
+		return Sw_vec, phiw_vec, omegapred
+
+
 	def get_Wpoints_on_regular_grid(self,omega_min=-5.,omega_max=+5.,Ndiv=51,normalize_density_numerically=False,reshape_for_plotting=False):
 		"""
 
@@ -158,12 +186,11 @@ class SpectralDensityBase(ABC):
 
 		"""
 
-		omegapred_aux = tf.linspace(omega_min,omega_max,Ndiv)
-		omegapredgrid_data = tf.meshgrid(*([omegapred_aux]*self.dim),indexing="ij")
-		omegapred = tf.concat([tf.reshape(omegapredgrid_data_el,(-1,1)) for omegapredgrid_data_el in omegapredgrid_data],axis=1)
+		omegapred = CommonUtils.create_Ndim_grid(xmin=omega_min,xmax=omega_max,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
 		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
 
 		if normalize_density_numerically:
+			raise NotImplementedError("Check for dim > 1")
 			normalization_constant_kernel = self.get_normalization_constant_numerical(omegapred)
 			logger.info("normalization_constant_kernel: "+str(normalization_constant_kernel))
 			Sw_vec = Sw_vec / normalization_constant_kernel
@@ -184,4 +211,7 @@ class SpectralDensityBase(ABC):
 
 	def update_Wpoints_regular(self,omega_min=-5.,omega_max=+5.,Ndiv=51,normalize_density_numerically=False,reshape_for_plotting=False):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_on_regular_grid(omega_min,omega_max,Ndiv,normalize_density_numerically,reshape_for_plotting)
+
+	def update_Wpoints_discrete(self,L,Ndiv,normalize_density_numerically=False,reshape_for_plotting=False):
+		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_discrete(L,Ndiv,normalize_density_numerically,reshape_for_plotting)
 

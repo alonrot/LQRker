@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
 from lqrker.spectral_densities.base import SpectralDensityBase
+from ood.utils.common import CommonUtils
 logger = get_logger(__name__)
 
 
@@ -19,19 +20,21 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		assert cfg.Nsteps_integration > 3
 
 		# Parameters:
-		x_lim_min = cfg.x_lim_min # -5.0
-		x_lim_max = cfg.x_lim_max # +2.0
-		Nsteps_integration = cfg.Nsteps_integration # 401
+		x_lim_min = cfg.x_lim_min
+		x_lim_max = cfg.x_lim_max
+		Nsteps_integration = cfg.Nsteps_integration
 
-		self.volume_x = (x_lim_max - x_lim_min)**self.dim # Assume hypercube
-
-		# pdb.set_trace()
-		xdata_aux = tf.linspace(x_lim_min,x_lim_max,Nsteps_integration)
-		xgrid_data = tf.meshgrid(*([xdata_aux]*self.dim))
+		xgrid_data = CommonUtils.create_Ndim_grid(xmin=x_lim_min,xmax=x_lim_max,Ndiv=Nsteps_integration,dim=self.dim) # [Ndiv**dim_x,dim_x]
 		self.xdata = tf.reshape(xgrid_data,(-1,self.dim)) # [Nsteps,dim]
-		self.dX = (x_lim_max - x_lim_min) / Nsteps_integration
-		self.fdata = self._nonlinear_system_fun(self.xdata) # [Nsteps,dim]
+		self.dX = (self.xdata[1,-1] - self.xdata[0,-1])**self.dim # Equivalent to ((x_lim_max - x_lim_min) / Nsteps_integration)**self.dim
 
+		self.fdata = self._nonlinear_system_fun(self.xdata) # [Nsteps,dim]
+		if self.fdata.ndim == 1:
+			self.fdata = tf.reshape(self.fdata,(-1,1))
+
+		# Fourier transform factor:
+		# self.factor_Fourier = 1./(2.*math.pi)**(self.dim/2) # Unitary convention; would need to multiply the rpior mean by this factor as well
+		self.factor_Fourier = 1./(2.*math.pi)**(self.dim) # Non-unitary convention: since we only care about S(w) in relation to the final f(x), we multiply the two terms directly here
 
 	def unnormalized_density(self,omega_in,log=False):
 		"""
@@ -59,21 +62,10 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		"""
 
 		assert omega_vec.shape[1] == self.dim
+		omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
 
-		if self.dim == 1:
-			omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
-			part_real = tfp.math.trapz(y=tf.math.cos(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
-			part_imag = tfp.math.trapz(y=tf.math.sin(omega_times_X)*tf.transpose(self.fdata),dx=self.dX,axis=1) / self.volume_x # [Npoints,]
-
-			part_real = tf.reshape(part_real,(-1,1))
-			part_imag = tf.reshape(part_imag,(-1,1))
-
-		else:
-
-			omega_times_X = omega_vec @ tf.transpose(self.xdata) # [Npoints,Nsteps]
-			M = omega_times_X.shape[1]
-			part_real = tf.math.cos(omega_times_X) @ self.fdata / M # Monte Carlo sum, [Npoints,dim]
-			part_imag = tf.math.sin(omega_times_X) @ self.fdata / M # Monte Carlo sum, [Npoints,dim]
+		part_real = self.dX*self.factor_Fourier*(tf.math.cos(omega_times_X) @ self.fdata)
+		part_imag = self.dX*self.factor_Fourier*(tf.math.sin(omega_times_X) @ self.fdata)
 
 		# Modulus (spectral density):
 		Sw = tf.math.sqrt(part_real**2 + part_imag**2) # [Npoints,dim]

@@ -11,6 +11,73 @@ from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
 
+
+class RRTPDiscreteCosineFeatures(ReducedRankStudentTProcessBase):
+	"""
+
+	Inspired by [1] and [2].
+
+	[1] Hensman, J., Durrande, N. and Solin, A., 2017. Variational Fourier Features for Gaussian Processes. J. Mach. Learn. Res., 18(1), pp.5537-5588.
+	[2] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
+
+
+	TODO:
+	3) Add other hyperparameters as trainable variables to the optimization
+	4) Refactor all this in different files
+	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
+	"""
+
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
+
+		super().__init__(dim,cfg,spectral_density,dim_out_int)
+
+		# assert cfg.hyperpars.prior_var_factor > 0 and cfg.hyperpars.prior_var_factor <= 1.0
+		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+
+		# Variance normalization:
+		self.prior_var_factor = 1./self.Zs
+
+		self.Nfeat = self.W_samples.shape[0]
+		self.prior_var = 1.0
+
+	def get_features_mat(self,X):
+		"""
+
+		X: [Npoints, dim]
+		return: PhiX: [Npoints, Nfeat]
+		"""
+
+		# pdb.set_trace()
+		WX = X @ tf.transpose(self.W_samples) # [Npoints, Nfeat]
+		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec)) # [Npoints, Nfeat]
+
+		return harmonics_vec
+
+	def get_prior_mean(self):
+		return self.Dw*self.S_samples_vec # [Npoints,1]
+
+	def get_cholesky_of_cov_of_prior_beta(self):
+		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
+		
+	def get_Sigma_weights_inv_times_noise_var(self):
+		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
+
+	def get_logdetSigma_weights(self):
+		return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
+
+	# def get_cholesky_of_cov_of_prior_beta(self):
+	# 	# return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat + self.get_noise_var())) # T-Student's process, observation prediction y
+	# 	return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat)) # T-Student's process, function f(x) prediction
+
+	# def get_Sigma_weights_inv_times_noise_var(self):
+	# 	return self.get_noise_var() * (self.Nfeat/self.prior_var) * tf.eye(self.Nfeat)
+
+	# def get_logdetSigma_weights(self):
+	# 	return self.Nfeat*tf.math.log(self.prior_var)
+
+
+
 class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 	"""
 
@@ -52,8 +119,12 @@ class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 
 		return harmonics_vec_scaled
 
+	def get_prior_mean(self):
+		return tf.zeros((self.W_samples.shape[0],1))
+
 	def get_cholesky_of_cov_of_prior_beta(self):
-		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)) + self.get_noise_var()))
+		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
@@ -84,8 +155,12 @@ class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
 
 		return harmonics_vec
 
+	def get_prior_mean(self):
+		return tf.zeros((self.W_samples.shape[0],1))
+
 	def get_cholesky_of_cov_of_prior_beta(self):
-		return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat + self.get_noise_var()))
+		# return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat + self.get_noise_var())) # T-Student's process, observation prediction y
+		return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat)) # T-Student's process, function f(x) prediction
 
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var() * (self.Nfeat/self.prior_var) * tf.eye(self.Nfeat)

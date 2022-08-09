@@ -4,7 +4,7 @@ import math
 import pdb
 import numpy as np
 
-from lqrker.models import RRTPRegularFourierFeatures
+from lqrker.models import RRTPRegularFourierFeatures, RRTPDiscreteCosineFeatures
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -28,7 +28,8 @@ class MultiObjectiveRRTPRegularFourierFeatures():
 
 		self.rrgpMO = [None]*self.dim_out
 		for ii in range(self.dim_out):
-			self.rrgpMO[ii] = RRTPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			# self.rrgpMO[ii] = RRTPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			self.rrgpMO[ii] = RRTPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
 			self.rrgpMO[ii].select_output_dimension(dim_out_ind=ii)
 
 		self.update_model(X=Xtrain,Y=Ytrain)
@@ -57,7 +58,7 @@ class MultiObjectiveRRTPRegularFourierFeatures():
 
 		# Compute predictive moments:
 		for ii in range(self.dim_out):
-			MO_mean_pred[ii], cov_pred = self.rrgpMO[ii].predict_at_locations(xpred)
+			MO_mean_pred[ii], cov_pred = self.rrgpMO[ii].predict_at_locations(xpred,from_prior)
 
 			MO_mean_pred[ii] = tf.reshape(MO_mean_pred[ii],(-1,1))
 			MO_std_pred[ii] = tf.reshape(tf.sqrt(tf.linalg.diag_part(cov_pred)),(-1,1))

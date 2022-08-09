@@ -12,6 +12,7 @@ from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
 from lqrker.spectral_densities.base import SpectralDensityBase
+from ood.utils.common import CommonUtils
 
 # import warnings
 # warnings.filterwarnings("error")
@@ -89,8 +90,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.mean_beta_prior = None
 		self.chol_cov_beta_prior = None
 
-
-
 		# ----------------------------------------------------------------------------------------------------------
 		# Parameters only relevant to child classes
 		# ----------------------------------------------------------------------------------------------------------
@@ -105,17 +104,45 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		self.S_samples_vec = self.spectral_density.Sw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
 		self.phi_samples_vec = self.spectral_density.phiw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
 		self.W_samples = self.spectral_density.W_points # [Npoints,self.dim]
+		
+		Zs = self.spectral_density.get_normalization_constant_numerical(self.W_samples) # [self.dim,]
+		self.Zs = Zs[self.dim_out_ind:self.dim_out_ind+1]
 
 		# ----------------------------------------------------------------------------------------------------------
 		# ----------------------------------------------------------------------------------------------------------
+
+
+	@abstractmethod
+	def get_features_mat(self,X):
+		"""
+		X: [Npoints, in_dim]
+		return: PhiX: [Npoints, Nfeat]
+		"""
+		raise NotImplementedError
+
+	@abstractmethod
+	def get_Sigma_weights_inv_times_noise_var(self):
+		"""
+		X: None
+		return: None
+		"""
+		raise NotImplementedError
+
+	@abstractmethod
+	def get_cholesky_of_cov_of_prior_beta(self):
+		raise NotImplementedError
+
+
+	def get_logdetSigma_weights(self):
+		raise NotImplementedError
+
+	def add2dataset(self,xnew,ynew):
+		raise NotImplementedError
 
 
 	def select_output_dimension(self,dim_out_ind):
 		assert dim_out_ind >= 0 and dim_out_ind <= self.dim
 		self.dim_out_ind = dim_out_ind
-
-	def add2dataset(self,xnew,ynew):
-		pass
 
 	def get_noise_var(self):
 		"""
@@ -131,21 +158,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return ret
 
-	@abstractmethod
-	def get_Sigma_weights_inv_times_noise_var(self):
-		"""
-		X: None
-		return: None
-		"""
-		raise NotImplementedError
-
-	@abstractmethod
-	def get_cholesky_of_cov_of_prior_beta(self):
-		raise NotImplementedError
-
-	def get_logdetSigma_weights(self):
-		raise NotImplementedError
-
 	def get_MLII_loss_gaussian(self):
 		"""
 
@@ -154,13 +166,14 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		TODO: Remove this method and place it in rrgp.py
 
 		"""
+		raise NotImplementedError("Needs refactoring")
 
 		Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
 
 		# Compute Ky_inv:
 		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
 
-		data_fit = -0.5*tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
+		data_fit = -0.5*tf.transpose(self.Y) @ (K11_inv @ self.Y)
 
 		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.reduce_sum( tf.math.log( tf.linalg.diag_part(Lchol) ) )
 
@@ -179,6 +192,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
 		"""
 
+		raise NotImplementedError("Needs refactoring")
+
 		# logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(self.PhiX.shape[1],self.PhiX.shape[1]))
 
 		Kmat = tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var()
@@ -190,8 +205,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			logger.info("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
 
 			logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
-			# min_eigval_posi = self.fix_eigvals(self.PhiX)
-			Kmat = self.fix_eigvals(Kmat)
+			# min_eigval_posi = CommonUtils.fix_eigvals(self.PhiX)
+			Kmat = CommonUtils.fix_eigvals(Kmat)
 			# return 10*min_eigval_posi
 			# return 10.0*tf.reduce_max(self.PhiX)
 			# Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() + min_eigval*tf.eye(self.PhiX.shape[1]) ) # Lower triangular A = L.L^T
@@ -206,7 +221,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
 
 		# Compute data fit:
-		term_data_fit = tf.clip_by_value(tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M)),clip_value_min=0.0,clip_value_max=float("Inf"))
+		term_data_fit = tf.clip_by_value(tf.transpose(self.Y) @ (K11_inv @ self.Y),clip_value_min=0.0,clip_value_max=float("Inf"))
 		# term_data_fit = tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
 
 		data_fit = -0.5*(self.nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (self.nu-2.) )
@@ -229,6 +244,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		"""
+
+		raise NotImplementedError("Needs refactoring")
 
 		logger.info("Training the model...")
 
@@ -298,112 +315,19 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
 		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
-		AA_sym = AA_sym + tf.transpose(AA_sym)
-		AA_sym = self.fix_eigvals(AA_sym)
+		AA_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
 
 		logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
+		AA_sym = CommonUtils.fix_eigvals(AA_sym)
 		self.Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
 
-		# try:
-		# 	# self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
-		# except Exception as inst:
-			
-		# 	logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-		# 	logger.info("Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) || Fixing it...")
 
-		# 	pdb.set_trace()
-
-		# 	# # Fix it by modifying the hyperparameters:
-		# 	# # Extract the most negative eigenvalue:
-		# 	# aux2 = tf.math.real(tf.eigvals(PhiXTPhiX))
-		# 	# min_eigval_posi = tf.abs(tf.reduce_min(aux2))
-		# 	# min_eigval_posi = 1.1*min_eigval_posi
-
-		# 	# # Add such eigenvalue as jitter:
-		# 	# if hasattr(self, 'log_diag_vals'):
-		# 	# 	self.log_diag_vals.assign( -tf.math.log(tf.exp(-self.log_diag_vals) + min_eigval_posi*tf.exp(-2.0*self.log_noise_std)) )
-		# 	# 	Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
-		# 	# else:
-		# 	# 	logger.info("Fixture only implemented for child classes where log_diag_vals is used.")
-		# 	# 	logger.info("For other classes, this fuxture needs to be implemented...")
-
-		# 	# logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval_posi)))
-		# 	# # self.Lchol = tf.linalg.cholesky(PhiXTPhiX + Sigma_weights_inv_times_noise_var) # Lower triangular A = L.L^T
-		# 	# self.Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
-			
-		# 	# # raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
-		# 	# # bbb = tf.transpose(self.PhiX) @ self.PhiX + Sigma_weights_inv_times_noise_var + min_eigval*tf.eye(self.PhiX.shape[1])
-		# 	# # bbb2 = tf.math.real(tf.eigvals(bbb))
-		# 	# # logger.info("bbb2:",bbb2)
-		# 	# # pdb.set_trace()
-
-		# Prior mean:
-		self.M = tf.zeros((self.X.shape[0],1))
-
-	@staticmethod
-	def fix_eigvals(Kmat):
-		"""
-
-		Among the negative eigenvalues, get the 'most negative one'
-		and return it with flipped sign
-		"""
-
-		
-		Kmat_sol = tf.linalg.cholesky(Kmat)
-		if tf.math.reduce_any(tf.math.is_nan(Kmat_sol)):
-			logger.info("Kmat needs to be fixed...")
-		else:
-			logger.info("Kmat is PD; nothing to fix...")
-			return Kmat
-
-		try:
-			eigvals, eigvect = tf.linalg.eigh(Kmat)
-		except Exception as inst:
-			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			logger.info("Failed to compute tf.linalg.eigh(Kmat) ...")
-			pdb.set_trace()
-
-		max_eigval = tf.reduce_max(tf.math.real(eigvals))
-		min_eigval = tf.reduce_min(tf.math.real(eigvals))
-
-		# Compte eps:
-		# eps must be such that the condition number of the resulting matrix is not too large
-		max_order_eigval = tf.math.ceil(tf.experimental.numpy.log10(max_eigval))
-		eps = 10**(max_order_eigval-8) # We set a maximum condition number of 8
-
-		# Fix eigenvalues:
-		eigvals_fixed = eigvals + tf.abs(min_eigval) + eps
-
-		# pdb.set_trace()
-		logger.info(" Fixed by adding " + str(tf.abs(min_eigval).numpy()))
-		logger.info(" and also by adding " + str(eps.numpy()))
-
-		Kmat_fixed = eigvect @ ( tf.linalg.diag(eigvals_fixed) @ tf.transpose(eigvect) ) # tf.transpose(eigvect) is the same as tf.linalg.inv(eigvect) | checked
-
-		# Kmat_fixed_sym = 0.5*(Kmat_fixed + tf.transpose(Kmat_fixed))
-
-		try:
-			tf.linalg.cholesky(Kmat_fixed)
-		except:
-			pdb.set_trace()
-
-		# pdb.set_trace()
-
-		return Kmat_fixed
-
-
-	@abstractmethod
-	def get_features_mat(self,X):
-		"""
-		X: [Npoints, in_dim]
-		return: PhiX: [Npoints, Nfeat]
-		"""
-		raise NotImplementedError
+		# AA_sym_inv = tf.linalg.inv(AA_sym)
+		# # AA_sym_inv = CommonUtils.fix_eigvals(AA_sym_inv)
+		# self.Lchol_of_inv = tf.linalg.cholesky(AA_sym_inv)
 
 	def get_predictive_beta_distribution(self):
 		"""
-
-		TODO: Make sure this is the right way of inclduing the prior mean
 		"""
 
 		if self.predictive_beta_already_computed:
@@ -411,21 +335,23 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			return self.mean_beta_predictive, self.chol_cov_beta_predictive
 
 		# Get mean:
-		PhiXY = tf.transpose(self.PhiX) @ (self.Y - self.M)
-		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY)
+		PhiXY_plus_mean_term = tf.transpose(self.PhiX) @ self.Y + self.get_Sigma_weights_inv_times_noise_var() @ self.get_prior_mean()
+		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term)
+		# mean_beta = (self.Lchol_of_inv @ tf.transpose(self.Lchol_of_inv)) @ PhiXY_plus_mean_term
 
-		# Adding non-zero mean. Check that self.M is also non-zero
-		# mean_pred += tf.zeros((xpred.shape[0],1))
+
+
 
 		var_noise = self.get_noise_var()
 
 		# Update parameters from the Student-t distribution:
 		nu_pred = self.nu + self.X.shape[0]
 
-		K11_inv = 1/var_noise*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
-		beta1 = tf.transpose(self.Y - self.M) @ ( K11_inv @ (self.Y - self.M) )
+		K11_inv = (1./var_noise)*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
+		# PhiX_times_Lchol_inv = self.Lchol_of_inv @ tf.transpose(self.PhiX)
+		# K11_inv = (1./var_noise)*( tf.eye(self.X.shape[0]) - tf.transpose(PhiX_times_Lchol_inv) @ PhiX_times_Lchol_inv)
+		beta1 = tf.transpose(self.Y) @ ( K11_inv @ self.Y )
 		cov_beta_factor_sqrt = tf.sqrt( (self.nu + beta1 - 2) / (nu_pred-2) * var_noise )
-
 
 		# wishart_cholesky_to_iw_cholesky = tfp.bijectors.CholeskyToInvCholesky()
 		# Mchol = wishart_cholesky_to_iw_cholesky.forward(tf.transpose(self.Lchol))
@@ -433,7 +359,20 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		# aaa = tf.linalg.inv(tf.transpose(self.Lchol))
 		# pdb.set_trace()
 
+		"""
+		theta ~ N(mu,Sigma)
+		Sigma = L.L^T
+		We need L
+		
+		Sigma = Sigma_tilde * var_noise
+		Sigma_tilde = (Lchol @ Lchol^T)^{-1}
+		Sigma = (Lchol @ Lchol^T)^{-1} * var_noise = ( (Lchol^T)^{-1} @ Lchol^{-1} ) * var_noise = (Lchol^T)^{-1}*std_noise @ Lchol^{-1}*std_noise
+		Hence, L = (Lchol^T)^{-1}*std_noise
+
+		For theta ~ t(mu,Sigma), we just need to multiply by tf.sqrt( (self.nu + beta1 - 2) / (nu_pred-2) )
+		"""
 		cov_beta_chol = tf.linalg.inv(tf.transpose(self.Lchol)) * cov_beta_factor_sqrt
+		# cov_beta_chol = self.Lchol_of_inv * cov_beta_factor_sqrt
 
 		self.predictive_beta_already_computed = True
 		self.mean_beta_predictive = mean_beta
@@ -444,8 +383,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	def get_prior_beta_distribution(self):
 		"""
 
-		NOTE: here we are adding noise, but in self.get_predictive_beta_distribution() we aren't
-		NOTE: The prior mean and covariance are hardcoded to zero
 		NOTE: We can't have an additive noise model here. We do as they do in [2, Fig. 3], i.e., we add the noise
 		directly to the covariance matrix, but this doesn't correspond to th covariance of t1+t2.
 
@@ -464,7 +401,7 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		chol_cov_beta_prior = self.get_cholesky_of_cov_of_prior_beta() * tf.math.sqrt( (self.nu) / (self.nu - 2.) )
 
 		# Get prior mean:
-		mean_beta_prior = tf.zeros((chol_cov_beta_prior.shape[0],1))
+		mean_beta_prior = self.get_prior_mean()
 
 		self.prior_beta_already_computed = True
 		self.mean_beta_prior = mean_beta_prior
@@ -644,11 +581,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 	def get_predictive_entropy_of_truncated_dist(self):
 		"""
-
 		https://link.springer.com/content/pdf/10.1016/j.jkss.2007.06.001.pdf
 		"""
-
-		pass
+		raise NotImplementedError
 
 	def get_predictive_entropy(self,cov_pred):
 		"""

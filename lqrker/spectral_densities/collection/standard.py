@@ -25,22 +25,32 @@ class SquaredExponentialSpectralDensity(SpectralDensityBase):
 		in: omega_in [Nfeat,dim]
 		return: S_vec [Nfeat,]
 
-		Using now the N-dimensional formulation from Rasmussen
+		# This density corresponds to a stationary kernel. Hence, it depends on the L2 norm of the frequencies, i.e.,
+		# S(omega) = S(||omega||^2)
 
-		Outputs a vector 
+		Using formulation [1], which depends on omega directly as opposed to 2*pi*f, presented in [2].
 
-		Matern kernel spectral density
+
+		[1] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
+		[2] Williams, C.K. and Rasmussen, C.E., 2006. Gaussian processes for machine learning (Vol. 2, No. 3, p. 4). Cambridge, MA: MIT press.
 		"""
 
-		S_vec = self.const * tf.math.exp(-2.*(math.pi*self.ls*omega_in)**2)
+		# This density corresponds to a stationary kernel. Hence, its input is the L2 norm of the frequencies:
+		omega_in_L2_squared = tf.math.reduce_sum(omega_in**2,axis=1,keepdims=True) # L2 norm, squared, [Nfeat,1]
+		S_vec = self.const * tf.math.exp(-2.*(math.pi*self.ls)**2 * omega_in_L2_squared) # [Nfeat,1]
 
-		# Multiply dimensions (i.e., assume that matern density factorizes w.r.t omega input dimensionality). Also, pump variance into it:
-		S_vec = tf.reduce_prod(S_vec,axis=1)
+		# When modeling N-dimensional process, we get one spectral density per channel. However, because matern kernels depend
+		# only on the L2 norm of the vector of frequencies, each channel has the same spectral density. Hence, we return copies of S(w), as many as input dimensions:
+		S_vec = tf.concat([S_vec]*self.dim,axis=1)
 
 		if log == True:
 			return tf.math.log(S_vec)
 
-		return S_vec, 0.0
+		return S_vec, tf.zeros((1,self.dim))
+
+	def _nonlinear_system_fun(self,x):
+		return tf.zeros(x.shape)
+
 
 class MaternSpectralDensity(SpectralDensityBase):
 
@@ -61,25 +71,29 @@ class MaternSpectralDensity(SpectralDensityBase):
 		in: omega_in [Nfeat,dim]
 		return: S_vec [Nfeat,]
 
-		Using now the N-dimensional formulation from Rasmussen
+		# This density corresponds to a stationary kernel. Hence, it depends on the L2 norm of the frequencies, i.e.,
+		# S(omega) = S(||omega||^2)
 
-		Outputs a vector 
+		Using formulation [1], which depends on omega directly as opposed to 2*pi*f, presented in [2].
 
-		Matern kernel spectral density
+
+		[1] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
+		[2] Williams, C.K. and Rasmussen, C.E., 2006. Gaussian processes for machine learning (Vol. 2, No. 3, p. 4). Cambridge, MA: MIT press.
 		"""
 
-		S_vec = self.const / ((self.lambda_val**2 + omega_in**2)**(self.nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
 
-		# Multiply dimensions (i.e., assume that matern density factorizes w.r.t omega input dimensionality). Also, pump variance into it:
-		S_vec = tf.math.reduce_prod(S_vec,axis=1,keepdims=True)
+		# This density corresponds to a stationary kernel. Hence, its input is the L2 norm of the frequencies:
+		omega_in_L2_squared = tf.math.reduce_sum(omega_in**2,axis=1,keepdims=True) # L2 norm, squared, [Nfeat,1]
+		S_vec = self.const / ((self.lambda_val**2 + omega_in_L2_squared)**(self.nu+self.dim*0.5)) # Using omega directly (Sarkka) as opposed to 4pi*s (rasmsusen)
 
-		# Return copies of S(w), as many as input dimensions:
+		# When modeling N-dimensional process, we get one spectral density per channel. However, because matern kernels depend
+		# only on the L2 norm of the vector of frequencies, each channel has the same spectral density. Hence, we return copies of S(w), as many as input dimensions:
 		S_vec = tf.concat([S_vec]*self.dim,axis=1)
 
 		if log == True:
 			return tf.math.log(S_vec)
 
-		return S_vec, 0.0
+		return S_vec, tf.zeros((1,self.dim))
 
 	def _nonlinear_system_fun(self,x):
 		return tf.zeros(x.shape)
