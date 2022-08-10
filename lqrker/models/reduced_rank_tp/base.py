@@ -108,6 +108,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		Zs = self.spectral_density.get_normalization_constant_numerical(self.W_samples) # [self.dim,]
 		self.Zs = Zs[self.dim_out_ind:self.dim_out_ind+1]
 
+		# pdb.set_trace()
+
 		# ----------------------------------------------------------------------------------------------------------
 		# ----------------------------------------------------------------------------------------------------------
 
@@ -311,16 +313,16 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		logger.info("Computing matrix of features PhiX ...")
 		self.PhiX = self.get_features_mat(self.X)	
 
-		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX	
+		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
+		# pdb.set_trace()
 		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
 		AA_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
 
 		logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
 		AA_sym = CommonUtils.fix_eigvals(AA_sym)
 		self.Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
-
 
 		# AA_sym_inv = tf.linalg.inv(AA_sym)
 		# # AA_sym_inv = CommonUtils.fix_eigvals(AA_sym_inv)
@@ -338,9 +340,6 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		PhiXY_plus_mean_term = tf.transpose(self.PhiX) @ self.Y + self.get_Sigma_weights_inv_times_noise_var() @ self.get_prior_mean()
 		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term)
 		# mean_beta = (self.Lchol_of_inv @ tf.transpose(self.Lchol_of_inv)) @ PhiXY_plus_mean_term
-
-
-
 
 		var_noise = self.get_noise_var()
 
@@ -434,6 +433,14 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		mean_pred = Phi_pred @ mean_beta
 		cov_pred_chol = Phi_pred @ cov_beta_chol
 		cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol) # L.L^T
+
+		# DEBUG
+		# if from_prior:
+		# 	print("tf.sqrt(cov_pred[0,0]):",tf.sqrt(cov_pred[0,0]))
+		# 	cov_beta = cov_beta_chol @ tf.transpose(cov_beta_chol)
+		# 	print("cov_beta[0,0]:",cov_beta[0,0])
+		# 	# self.S_samples_vec
+		# 	pdb.set_trace()
 
 		return tf.squeeze(mean_pred), cov_pred
 
