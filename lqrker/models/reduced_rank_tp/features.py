@@ -33,9 +33,12 @@ class RRTPDiscreteCosineFeatures(ReducedRankStudentTProcessBase):
 
 		self.Nfeat = self.W_samples.shape[0]
 		assert cfg.hyperpars.prior_variance > 0
-		self.prior_var_factor = 1./(tf.reduce_max(self.S_samples_vec)*((self.nu) / (self.nu - 2.) ) * self.Nfeat) * cfg.hyperpars.prior_variance
-
 		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+		
+		# self.prior_var_factor = 1./(tf.reduce_max(self.S_samples_vec)*((self.nu) / (self.nu - 2.) ) * self.Nfeat) * cfg.hyperpars.prior_variance
+		# self.prior_var_factor = self.Dw / ((self.nu) / (self.nu - 2.) )
+
+		self.prior_var_factor = self.Dw / ( ((self.nu) / (self.nu - 2.) )*self.Zs) * cfg.hyperpars.prior_variance
 
 		
 		# Variance normalization:
