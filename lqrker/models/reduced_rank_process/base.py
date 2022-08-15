@@ -12,7 +12,7 @@ from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
 from lqrker.spectral_densities.base import SpectralDensityBase
-from ood.utils.common import CommonUtils
+from lqrker.utils.common import CommonUtils
 
 # import warnings
 # warnings.filterwarnings("error")

@@ -4,7 +4,7 @@ import math
 from abc import ABC, abstractmethod
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
-from ood.utils.common import CommonUtils
+from lqrker.utils.common import CommonUtils
 import numpy as np
 logger = get_logger(__name__)
 

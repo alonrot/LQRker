@@ -6,7 +6,7 @@ import numpy as np
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
 from lqrker.spectral_densities.base import SpectralDensityBase
-from ood.utils.common import CommonUtils
+from lqrker.utils.common import CommonUtils
 logger = get_logger(__name__)
 
 
