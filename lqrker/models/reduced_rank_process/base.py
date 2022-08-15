@@ -57,7 +57,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 	"""
 	# def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0, **kwargs):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0, **kwargs):
 		"""
 		
 		dim: Dimensionality of the input space
@@ -113,7 +113,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		# This model assumes a dim-dimensional input and a scalar output.
 		# We need to select the output we care about for the spectral density points:
-		self.select_output_dimension(dim_out_int)
+		self.select_output_dimension(dim_out_ind)
 		
 		self.S_samples_vec = self.spectral_density.Sw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
 		self.phi_samples_vec = self.spectral_density.phiw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
@@ -338,7 +338,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 	def update_model(self,X,Y):
 
-		logger.info("Updating model...")
+		logger.info("Updating model for output dimension {0:d} / {1:d}".format(self.dim_out_ind+1,self.dim))
 
 		self._update_dataset(X,Y)
 		self._update_features()
@@ -414,7 +414,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			cov_beta_factor_sqrt = tf.sqrt( (nu + beta1 - 2) / (nu_pred-2) * self.get_noise_var() )
 
 		elif self.which_process == "gaussian":
-			cov_beta_factor_sqrt = 1.0
+			cov_beta_factor_sqrt = tf.sqrt(self.get_noise_var())
 
 
 		"""

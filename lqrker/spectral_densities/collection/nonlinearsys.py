@@ -128,6 +128,7 @@ class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 		a2 = -2.
 
 		if not use_nominal_model:
+			logger.info("DBG")
 			pdb.set_trace()
 			a0 = -0.2
 			a1 = 0.9
