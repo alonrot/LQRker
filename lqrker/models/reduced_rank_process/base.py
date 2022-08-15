@@ -29,7 +29,7 @@ matplotlib.rc('font',**{'family':'serif','serif':['Computer Modern Roman']})
 plt.rc('legend',fontsize=fontsize_labels+2)
 
 
-class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
+class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	"""
 
 	Reduced-Rank Student-t Process
@@ -39,7 +39,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 	in order to reduce computational speed by using a finite set of features.
 	See also [3].
 
-	We assume zero mean. Extending it non-zero mean is trivial.
+	We assume herein non-zero mean.
+
+	We use a Bayesian linear model:
 
 
 	[1] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In Artificial intelligence and statistics (pp. 877-885). PMLR.
@@ -50,6 +52,9 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 	[3] Solin, A. and Särkkä, S., 2020. Hilbert space methods for reduced-rank
 	Gaussian process regression. Statistics and Computing, 30(2), pp.419-446.
+
+	
+
 	"""
 	# def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
 	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0, **kwargs):
@@ -62,16 +67,25 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		super().__init__(**kwargs)
 
+
+		assert cfg.which_process in ["gaussian","student-t"]
+		self.which_process = cfg.which_process
+		if self.which_process == "student-t":
+			assert cfg.hyperpars.nu_init > 2, "Requirement: nu > 2"
+			nu_init = cfg.hyperpars.nu_init
+			self.log_nu = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(nu_init-2.0)), trainable=True,name="log_nu")
+
 		self.dim = dim
-		assert cfg.hyperpars.nu > 2, "Requirement: nu > 2"
-		self.nu = cfg.hyperpars.nu # Related to t-Student's distribution
-		sigma_n_init = cfg.hyperpars.sigma_n.init
+
+		sigma_n_init = cfg.hyperpars.sigma_n_init
+		# L_init = cfg.hyperpars.L_init
 
 		
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
 		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(sigma_n_init)), trainable=True,name="log_noise_std")
+		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(L_init)), trainable=True,name="log_L")
 
 		# Learning parameters:
 		self.learning_rate = cfg.learning.learning_rate
@@ -107,8 +121,11 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		
 		Zs = self.spectral_density.get_normalization_constant_numerical(self.W_samples) # [self.dim,]
 		self.Zs = Zs[self.dim_out_ind:self.dim_out_ind+1]
-
-		# pdb.set_trace()
+		
+		# Process specific things:
+		if self.which_process == "student-t":
+			nu = self.get_nu()
+			self.Zs = self.Zs * (nu/(nu - 2.))
 
 		# ----------------------------------------------------------------------------------------------------------
 		# ----------------------------------------------------------------------------------------------------------
@@ -152,118 +169,149 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		TODO: Think about maybe using the softplus transform log(1 + exp(x))
 		https://en.wikipedia.org/wiki/Rectifier_(neural_networks)#Softplus
 		"""
+		return tf.exp(2.0*tf.squeeze(self.log_noise_std))
 
-		ret = tf.exp(2.0*self.log_noise_std)
+	def get_log_noise_std(self):
+		return self.log_noise_std
 
-		# if tf.math.reduce_any(tf.math.is_nan(ret)):
-		# 	pdb.set_trace()
+	# def get_L(self):
+	# 	return tf.exp(self.log_L)
 
-		return ret
+	def get_nu(self):
+		assert self.which_process == "student-t"
+		return tf.exp(tf.squeeze(self.log_nu)) + 2.0
 
-	def get_MLII_loss_gaussian(self):
-		"""
-
-		TODO: Not used. Move to the corresponding class rrgp
-		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
-		TODO: Remove this method and place it in rrgp.py
-
-		"""
-		raise NotImplementedError("Needs refactoring")
-
-		Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() ) # Lower triangular A = L.L^T
-
-		# Compute Ky_inv:
-		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
-
-		data_fit = -0.5*tf.transpose(self.Y) @ (K11_inv @ self.Y)
-
-		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.reduce_sum( tf.math.log( tf.linalg.diag_part(Lchol) ) )
-
-		return -data_fit - model_complexity
-
-	def get_MLII_loss(self):
-		"""
-
-		Compute the negative log evidence for a multivariate Student-t distribution
-		The terms that do not depend on the hyperprameters (defined with
-		self.add_weight() in self.__init__()) have not been included
-
-		NOTE: The model complexity term that depends on the hyperparameters and data
-		is the same is in the Gaussian case, i.e., log(det(Ky)^{-0.5})
+	def print_weights_info(self):
 		
-		TODO: Make sure that we call this function self.get_MLII_loss() after calling self.update_model()
+		logger.info("Trained weights:")
+		for ii in range(len(self.trainable_weights)):
+
+			if "log_nu" in self.trainable_weights[ii].name:
+				str_info = " ** nu: " + str(self.get_nu())
+			elif "log_noise_std" in self.trainable_weights[ii].name:
+				str_info = " ** noise_std: " + str(tf.sqrt(self.get_noise_var()).numpy())
+
+			logger.info(str_info)
+
+	def get_prior_cov_inverse(self):
 		"""
 
-		raise NotImplementedError("Needs refactoring")
+		This is needed for (a) predictive distributions and (b) loss function.
+		
+		cov(f(x)) = cov(phi(x)*beta) = phi(x)^T @ Sigma0 @ phi(x) + sigma_n^2
+		Computing the inverse of cov(f(x)) scales O(N^3) where N is the number of datapoints. We wanna change that to O(M^3N),
+		where M is the number of features. To that end, we use the matrix inversion lemma, and obtain:
 
-		# logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(self.PhiX.shape[1],self.PhiX.shape[1]))
+		Kinv = cov(f(x))^{-1} = sigma_n^{-2} * ( I - phi(x)^T @ A^{-1} @ phi(x) ), with A = L.L^T and L being computed at self._update_features()
+		"""
+		Kinv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) ) # [Npoints,Npoints]
+		return Kinv
 
-		Kmat = tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var()
+	def get_log_det_prior_cov_inverse(self):
+		"""
 
-		try:
-			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
-		except Exception as inst:
-			logger.info("type: {0:s} | args: {1:s}".format(str(type(inst)),str(inst.args)))
-			logger.info("@get_MLII_loss: Failed to compute: chol( PhiX^T.PhiX + Diag_mat ) ...")
+		See the explanation in self.get_prior_cov_inverse()
 
-			logger.info("Modifying Sigma_weights by adding eigval: {0:f} ...".format(float(min_eigval)))
-			# min_eigval_posi = CommonUtils.fix_eigvals(self.PhiX)
-			Kmat = CommonUtils.fix_eigvals(Kmat)
-			# return 10*min_eigval_posi
-			# return 10.0*tf.reduce_max(self.PhiX)
-			# Lchol = tf.linalg.cholesky(tf.transpose(self.PhiX) @ self.PhiX + self.get_Sigma_weights_inv_times_noise_var() + min_eigval*tf.eye(self.PhiX.shape[1]) ) # Lower triangular A = L.L^T
-			Lchol = tf.linalg.cholesky(Kmat) # Lower triangular A = L.L^T
+		This is an implementation of log(det(Kinv)), which is numerically more stable than the direct approach
 
-			# raise ValueError("Failed to compute: chol( PhiX^T.PhiX + Diag_mat )")
-			# logger.info("@get_MLII_loss(): Returning Inf....")
-			# return tf.constant([[float("Inf")]])
+		"""
 
-		# Compute Ky_inv:
-		# pdb.set_trace()
-		K11_inv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(Lchol, tf.transpose(self.PhiX)) )
+		Kinv_no_noise = self.get_noise_var() * self.get_prior_cov_inverse() # [Npoints,Npoints]
+		log_det_Kinv_no_noise = tf.linalg.logdet(Kinv_no_noise)
+
+		return log_det_Kinv_no_noise - 2.*Kinv_no_noise.shape[0]*self.get_log_noise_std()
+
+	def get_MLII_loss_student_t(self):
+		"""
+
+		Compute the negative log evidence for a multivariate Student-t distribution as in [*].
+
+		[*] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In *Artificial intelligence and statistics* (pp. 877-885). PMLR.
+		"""
+
+		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
+		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+
+		nu = self.get_nu()
 
 		# Compute data fit:
-		term_data_fit = tf.clip_by_value(tf.transpose(self.Y) @ (K11_inv @ self.Y),clip_value_min=0.0,clip_value_max=float("Inf"))
-		# term_data_fit = tf.transpose(self.Y - self.M) @ (K11_inv @ (self.Y-self.M))
-
-		data_fit = -0.5*(self.nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (self.nu-2.) )
+		Kinv = self.get_prior_cov_inverse()
+		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
+		term_data_fit = tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
+		assert tf.squeeze(term_data_fit < 0.0) == False
+		# term_data_fit_clipped = tf.clip_by_value(term_data_fit,clip_value_min=0.0,clip_value_max=float("Inf"))
+		data_fit = -0.5*(nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (nu-2.) )
 
 		# Compute model complexity:
-		# A = det(Lchol) = prod(diag_part(Lchol))
-		# log(A) = sum(log(diag_part(Lchol)))
-		model_complexity = -0.5*self.get_logdetSigma_weights() - tf.reduce_sum( tf.math.log( tf.linalg.diag_part(Lchol) ) )
+		"""
+		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
+		"""
+		model_complexity = 0.5*self.get_log_det_prior_cov_inverse()
 
-		loss_val = -data_fit - model_complexity
+		# Compute constant terms:
+		const = tf.math.lgamma(0.5*(nu + self.X.shape[0])) - 0.5*self.X.shape[0]*tf.math.log(math.pi*(nu-2.)) - tf.math.lgamma(0.5*nu)
 
-		# pdb.set_trace()
-		# if tf.math.is_nan(loss_val):
-		# 	pdb.set_trace()
-		# 	return tf.constant([[float("Inf")]])
+		# Compute loss as -log(p(y))
+		loss_val = -data_fit - model_complexity - const
+
+		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
+			pdb.set_trace()
 
 		return loss_val
 
-	def train_model(self):
+	def get_MLII_loss_gaussian(self):
+		"""
+		
+		"""
+
+		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
+		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+
+		# Compute data fit:
+		Kinv = self.get_prior_cov_inverse()
+		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
+		data_fit = -0.5*tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
+
+		# Compute model complexity:
+		"""
+		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
+		"""
+		model_complexity = 0.5*tf.linalg.det(Kinv)
+
+		# Compute loss as -log(p(y))
+		loss_val = -data_fit - model_complexity
+
+		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
+			pdb.set_trace()
+
+		return loss_val
+
+	def get_MLII_loss(self,which_process):
+		if which_process == "gaussian":
+			return self.get_MLII_loss_gaussian()
+		elif which_process == "student-t":
+			return self.get_MLII_loss_student_t()
+
+	def train_model(self,verbosity=False):
 		"""
 
 		"""
-
-		raise NotImplementedError("Needs refactoring")
 
 		logger.info("Training the model...")
 
+		# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Adam
 		optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
-
-		# logger.info(self.trainable_weights[0][0:10])
-		# logger.info(self.trainable_weights[1])
 
 		epoch = 0
 		done = False
+		loss_value_curr = float("Inf")
+		trainable_weights_best = self.get_weights()
 		while epoch < self.epochs and not done:
 
 			with tf.GradientTape() as tape:
-
-				# pdb.set_trace()
-				loss_value = self.get_MLII_loss()
+				loss_value = self.get_MLII_loss(which_process=self.which_process)
 
 			grads = tape.gradient(loss_value, self.trainable_weights)
 			optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -271,18 +319,22 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			if (epoch+1) % 10 == 0:
 				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.epochs, float(loss_value)))
 
-			# Stopping condition:
-			if not tf.math.is_nan(loss_value):
-				if loss_value <= self.stop_loss_val:
-					done = True
+			if loss_value <= self.stop_loss_val:
+				done = True
+			
+			if loss_value < loss_value_curr:
+				trainable_weights_best = self.get_weights()
+				loss_value_curr = loss_value
 			
 			epoch += 1
 
 		if done == True:
 			logger.info("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
 
-		# logger.info(self.trainable_weights[0])
-		# logger.info(self.trainable_weights[1])
+		self.set_weights(weights=trainable_weights_best)
+
+		if verbosity:
+			self.print_weights_info()
 
 	def update_model(self,X,Y):
 
@@ -303,26 +355,33 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 			assert Y.ndim == 2
 			self.Y = Y
 
-	def _update_features(self):
+	def _update_features(self,verbosity=False):
 		"""
 
 		Compute some relevant quantities that will be later used for prediction:
 		PhiX, 
 		"""
 
-		logger.info("Computing matrix of features PhiX ...")
-		self.PhiX = self.get_features_mat(self.X)	
+		if verbosity: logger.info("Computing matrix of features PhiX ...")
+		PhiX = self.get_features_mat(self.X) # [Npoints,Nfeat]
 
-		PhiXTPhiX = tf.transpose(self.PhiX) @ self.PhiX
+		PhiXTPhiX = tf.transpose(PhiX) @ PhiX
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
 		# pdb.set_trace()
 		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
 		AA_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
 
-		logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
-		AA_sym = CommonUtils.fix_eigvals(AA_sym)
-		self.Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
+		if verbosity: logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
+		AA_sym = CommonUtils.fix_eigvals(AA_sym,verbosity=verbosity)
+
+		Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
+		self.Lchol = Lchol
+		self.PhiX = PhiX
+		# if update_global_vars:
+		# 	return None
+		# else:
+		return self.Lchol, self.PhiX
 
 		# AA_sym_inv = tf.linalg.inv(AA_sym)
 		# # AA_sym_inv = CommonUtils.fix_eigvals(AA_sym_inv)
@@ -330,10 +389,11 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 	def get_predictive_beta_distribution(self):
 		"""
+	
 		"""
 
 		if self.predictive_beta_already_computed:
-			logger.info("predictive_beta_distribution doesn't need to be recomputed because the dataset was never updated")
+			# logger.info("predictive_beta_distribution doesn't need to be recomputed because the dataset was never updated")
 			return self.mean_beta_predictive, self.chol_cov_beta_predictive
 
 		# Get mean:
@@ -341,37 +401,38 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term)
 		# mean_beta = (self.Lchol_of_inv @ tf.transpose(self.Lchol_of_inv)) @ PhiXY_plus_mean_term
 
-		var_noise = self.get_noise_var()
 
-		# Update parameters from the Student-t distribution:
-		nu_pred = self.nu + self.X.shape[0]
+		if self.which_process == "student-t":
+			var_noise = self.get_noise_var()
+			nu = self.get_nu()
 
-		K11_inv = (1./var_noise)*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) )
-		# PhiX_times_Lchol_inv = self.Lchol_of_inv @ tf.transpose(self.PhiX)
-		# K11_inv = (1./var_noise)*( tf.eye(self.X.shape[0]) - tf.transpose(PhiX_times_Lchol_inv) @ PhiX_times_Lchol_inv)
-		beta1 = tf.transpose(self.Y) @ ( K11_inv @ self.Y )
-		cov_beta_factor_sqrt = tf.sqrt( (self.nu + beta1 - 2) / (nu_pred-2) * var_noise )
+			# Update parameters from the Student-t distribution:
+			nu_pred = nu + self.X.shape[0]
 
-		# wishart_cholesky_to_iw_cholesky = tfp.bijectors.CholeskyToInvCholesky()
-		# Mchol = wishart_cholesky_to_iw_cholesky.forward(tf.transpose(self.Lchol))
-		# Mchol = wishart_cholesky_to_iw_cholesky.forward(self.Lchol)
-		# aaa = tf.linalg.inv(tf.transpose(self.Lchol))
-		# pdb.set_trace()
+			K11_inv = self.get_prior_cov_inverse()
+			beta1 = tf.transpose(self.Y) @ ( K11_inv @ self.Y )
+			cov_beta_factor_sqrt = tf.sqrt( (nu + beta1 - 2) / (nu_pred-2) * self.get_noise_var() )
+
+		elif self.which_process == "gaussian":
+			cov_beta_factor_sqrt = 1.0
+
 
 		"""
 		theta ~ N(mu,Sigma)
 		Sigma = L.L^T
 		We need L
 		
-		Sigma = Sigma_tilde * var_noise
+		Sigma = Sigma_tilde * var_noise    (var_noise = self.get_noise_var())
 		Sigma_tilde = (Lchol @ Lchol^T)^{-1}
 		Sigma = (Lchol @ Lchol^T)^{-1} * var_noise = ( (Lchol^T)^{-1} @ Lchol^{-1} ) * var_noise = (Lchol^T)^{-1}*std_noise @ Lchol^{-1}*std_noise
 		Hence, L = (Lchol^T)^{-1}*std_noise
 
-		For theta ~ t(mu,Sigma), we just need to multiply by tf.sqrt( (self.nu + beta1 - 2) / (nu_pred-2) )
+		For theta ~ t(mu,Sigma), we just need to multiply by tf.sqrt( (nu + beta1 - 2) / (nu_pred-2) )
 		"""
 		cov_beta_chol = tf.linalg.inv(tf.transpose(self.Lchol)) * cov_beta_factor_sqrt
 		# cov_beta_chol = self.Lchol_of_inv * cov_beta_factor_sqrt
+
+		# pdb.set_trace()
 
 		self.predictive_beta_already_computed = True
 		self.mean_beta_predictive = mean_beta
@@ -392,12 +453,18 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		"""
 
+		if self.which_process == "student-t":
+			nu = self.get_nu()
+			fac_cov = tf.math.sqrt( nu / (nu - 2.) )
+		elif self.which_process == "gaussian":
+			fac_cov = 1.0
+
 		if self.prior_beta_already_computed:
 			logger.info("prior_beta_distribution doesn't need to be recomputed because the dataset was never updated")
 			return self.mean_beta_prior, self.chol_cov_beta_prior
-		
+
 		# Get prior cov:
-		chol_cov_beta_prior = self.get_cholesky_of_cov_of_prior_beta() * tf.math.sqrt( (self.nu) / (self.nu - 2.) )
+		chol_cov_beta_prior = self.get_cholesky_of_cov_of_prior_beta() * fac_cov
 
 		# Get prior mean:
 		mean_beta_prior = self.get_prior_mean()
@@ -449,8 +516,8 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
 
 		Nfeat = cov_beta_chol.shape[0]
-		sample_mvt0 = self.get_sample_mvt0(Nfeat,Nsamples)
-		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mvt0
+		sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples)
+		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0
 
 		def nonlinfun_sampled_callable(x):
 			return self.get_features_mat(x) @ aux # [Npoints,Nsamples]
@@ -555,6 +622,22 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 
 		return xsamples_X, xsamples_Y
 
+	def get_sample_multivariate_standard_prior(self,Npred,Nsamples):
+
+		if self.which_process == "student-t":
+			return self.get_sample_mvt0(Npred,Nsamples)
+		elif self.which_process == "gaussian":
+			return self.get_sample_mvn0(Npred,Nsamples)
+
+	def get_sample_mvn0(self,Npred,Nsamples):
+		"""
+		Sample a path from MVN(0,I)
+		return: [Npred,Nsamples]
+
+		"""
+		samples = tf.random.normal(shape=(Npred,Nsamples),mean=0.0,stddev=1.0) # [Npred,Nsamples]
+		return samples
+
 	def get_sample_mvt0(self,Npred,Nsamples):
 		"""
 		Sample a path from MVT(nu,0,I)
@@ -565,14 +648,17 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		[1] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes
 		as alternatives to Gaussian processes. In Artificial intelligence and
 		statistics (pp. 877-885). PMLR.
+
 		"""
 
 		# Sample from unit sphere:
 		dist_sphe = tfp.distributions.SphericalUniform(dimension=Npred)
 		sample_sphe = dist_sphe.sample(sample_shape=(Nsamples,))
 
+		nu = self.get_nu()
+
 		# Sample from inverse Gamma:
-		alpha = 0.5*self.nu
+		alpha = 0.5*nu
 		beta = 0.5
 		dist_ig = tfp.distributions.InverseGamma(concentration=alpha,scale=beta)
 		sample_ig = dist_ig.sample(sample_shape=(Nsamples,1))
@@ -582,13 +668,15 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		sample_chi2 = dist_chi2.sample(sample_shape=(Nsamples,1))
 
 		# Sample from MVT(nu,0,I):
-		sample_mvt0 = tf.math.sqrt((self.nu-2) * sample_chi2 * sample_ig) * sample_sphe
+		sample_mvt0 = tf.math.sqrt((nu-2) * sample_chi2 * sample_ig) * sample_sphe
 
 		return tf.transpose(sample_mvt0) # [Npred,Nsamples]
 
 	def get_predictive_entropy_of_truncated_dist(self):
 		"""
+		Moments of truncated Student-t distribution:
 		https://link.springer.com/content/pdf/10.1016/j.jkss.2007.06.001.pdf
+
 		"""
 		raise NotImplementedError
 
@@ -616,16 +704,14 @@ class ReducedRankStudentTProcessBase(ABC,tf.keras.layers.Layer):
 		[3] https://en.wikipedia.org/wiki/Differential_entropy
 
 		"""
-
 		entropy = 0.5*tf.math.log( tf.linalg.diag_part(cov_pred) )
-
-		return entropy
+		raise NotImplementedError("Make sure we switch here between gaussian/student-t")
 
 
 	def call(self, inputs):
 		# y = tf.matmul(inputs, self.w) + self.b
 		# return tf.math.cos(y)
-		logger.info("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
-		pass
+		# logger.info("self.call(): <><><><>      This method should not be called yet... (!)      <><><><>")
+		raise NotImplementedError
 
 

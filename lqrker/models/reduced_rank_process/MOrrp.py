@@ -7,7 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from lqrker.models import RRTPRegularFourierFeatures, RRTPDiscreteCosineFeatures
+from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -22,13 +22,13 @@ matplotlib.rc('font',**{'family':'serif','serif':['Computer Modern Roman']})
 plt.rc('legend',fontsize=fontsize_labels+2)
 
 
-class MultiObjectiveRRTPRegularFourierFeatures():
+class MultiObjectiveReducedRankProcess():
 
 	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain):
 
 		"""
 		
-		Initialize "dim" number of RRTPRegularFourierFeatures() models, one per output channel		
+		Initialize "dim" number of RRPRegularFourierFeatures() models, one per output channel		
 		"""
 
 		self.dim_in = dim
@@ -40,8 +40,8 @@ class MultiObjectiveRRTPRegularFourierFeatures():
 
 		self.rrgpMO = [None]*self.dim_out
 		for ii in range(self.dim_out):
-			# self.rrgpMO[ii] = RRTPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
-			self.rrgpMO[ii] = RRTPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			# self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			self.rrgpMO[ii] = RRPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
 			self.rrgpMO[ii].select_output_dimension(dim_out_ind=ii)
 
 		self.update_model(X=Xtrain,Y=Ytrain)
@@ -115,6 +115,11 @@ class MultiObjectiveRRTPRegularFourierFeatures():
 
 		return nonlinfun_sampled_callable
 
+	def train_model(self,verbosity=False):
+		for ii in range(self.dim_out):
+			self.rrgpMO[ii].train_model(verbosity)
+
+
 	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,Nsamples,sort=False,plotting=False):
 		"""
 
@@ -173,7 +178,7 @@ class MultiObjectiveRRTPRegularFourierFeatures():
 		xsamples[1,...] = np.stack([x1]*Nsamples,axis=2)
 		for ii in range(1,traj_length-1):
 
-			print("ii:",ii)
+			# print("ii:",ii)
 
 			xsample_tp = tf.convert_to_tensor(value=xsamples[ii:ii+1,:,0],dtype=np.float32)
 
@@ -215,7 +220,7 @@ class MultiObjectiveRRTPRegularFourierFeatures():
 			ind_sort = np.argsort(xsamples_Y_red,axis=0)
 			xsamples_Y_red_sorted = xsamples_Y_red[ind_sort]
 			xsamples_Y = xsamples_Y_red_sorted[:,0,:]
-		else:
+		elif self.dim_in == 1:
 			xsamples_X = xsamples_X[:,0,:]
 			xsamples_Y = xsamples_Y[:,0,:]
 

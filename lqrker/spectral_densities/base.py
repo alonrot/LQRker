@@ -151,6 +151,7 @@ class SpectralDensityBase(ABC):
 		assert Ndiv % 2 != 0 and Ndiv > 2, "Ndiv must be an odd positive integer"
 
 		j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
+		# j_indices = CommonUtils.create_Ndim_grid(xmin=0,xmax=Ndiv-1,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
 
 		omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
 
@@ -185,6 +186,8 @@ class SpectralDensityBase(ABC):
 			Nfeatures = Ndiv**self.dim
 
 		"""
+
+		raise ValueError("[DBG]: try with omega_min=0, omega_max=10")
 
 		omegapred = CommonUtils.create_Ndim_grid(xmin=omega_min,xmax=omega_max,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
 		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)

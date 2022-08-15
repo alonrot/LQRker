@@ -1,3 +1,3 @@
-from .reduced_rank_tp.base import ReducedRankStudentTProcessBase
-from .reduced_rank_tp.features import RRTPRegularFourierFeatures, RRTPRandomFourierFeatures, RRTPDiscreteCosineFeatures
-from .reduced_rank_tp.MOrrtp import MultiObjectiveRRTPRegularFourierFeatures
+from .reduced_rank_process.base import ReducedRankProcessBase
+from .reduced_rank_process.features import RRPRegularFourierFeatures, RRPRandomFourierFeatures, RRPDiscreteCosineFeatures
+from .reduced_rank_process.MOrrp import MultiObjectiveReducedRankProcess

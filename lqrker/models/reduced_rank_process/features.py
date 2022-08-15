@@ -5,14 +5,14 @@ import math
 import pdb
 import numpy as np
 
-from lqrker.models import ReducedRankStudentTProcessBase
+from lqrker.models import ReducedRankProcessBase
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
 
 
-class RRTPDiscreteCosineFeatures(ReducedRankStudentTProcessBase):
+class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 	"""
 
 	Inspired by [1] and [2].
@@ -31,25 +31,10 @@ class RRTPDiscreteCosineFeatures(ReducedRankStudentTProcessBase):
 
 		super().__init__(dim,cfg,spectral_density,dim_out_int)
 
-		self.Nfeat = self.W_samples.shape[0]
+		# self.Nfeat = self.W_samples.shape[0]
 		assert cfg.hyperpars.prior_variance > 0
 		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
-		
-		# self.prior_var_factor = 1./(tf.reduce_max(self.S_samples_vec)*((self.nu) / (self.nu - 2.) ) * self.Nfeat) * cfg.hyperpars.prior_variance
-		# self.prior_var_factor = self.Dw / ((self.nu) / (self.nu - 2.) )
-
-		self.prior_var_factor = self.Dw / ( ((self.nu) / (self.nu - 2.) )*self.Zs) * cfg.hyperpars.prior_variance
-
-		
-		# Variance normalization:
-		# self.prior_var_factor = 1./self.Zs # Bad idea because self.Zs can be < 1.
-		# pdb.set_trace()
-
-		# Try to simply reduce the variance of the prior itself on the kink example. Does such variance grow with the nr. of features or with the nr. of datapoints?
-		# Also, is not just the variance of beta what counts, but the variance of f, after multiplying Sigma with vector of featues, so thee's that
-
-		# pdb.set_trace()
-
+		self.prior_var_factor = self.Dw / self.Zs * cfg.hyperpars.prior_variance
 
 	def get_features_mat(self,X):
 		"""
@@ -74,8 +59,8 @@ class RRTPDiscreteCosineFeatures(ReducedRankStudentTProcessBase):
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
 
-	def get_logdetSigma_weights(self):
-		return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
+	# def get_logdetSigma_weights(self):
+	# 	return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
 
 	# def get_cholesky_of_cov_of_prior_beta(self):
 	# 	# return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat + self.get_noise_var())) # T-Student's process, observation prediction y
@@ -89,14 +74,12 @@ class RRTPDiscreteCosineFeatures(ReducedRankStudentTProcessBase):
 
 
 
-class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
+class RRPRegularFourierFeatures(ReducedRankProcessBase):
 	"""
 
 	
-	This model assumes a dim-dimensional input and a scalar output.
+	This model assumes a dim-dimensional input and a 1-dimensional output.
 
-
-	
 	As described in [1, Sec. 2.3.3], which is analogous to [2].
 
 	[1] Hensman, J., Durrande, N. and Solin, A., 2017. Variational Fourier Features for Gaussian Processes. J. Mach. Learn. Res., 18(1), pp.5537-5588.
@@ -113,10 +96,10 @@ class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 
 		super().__init__(dim,cfg,spectral_density,dim_out_int)
 
-		# assert cfg.hyperpars.prior_variance > 0
-		self.Nfeat = self.W_samples.shape[0]
 		assert cfg.hyperpars.prior_variance > 0
-		self.prior_var_factor = 1./(tf.reduce_max(self.S_samples_vec)*((self.nu) / (self.nu - 2.) ) * self.Nfeat) * cfg.hyperpars.prior_variance
+		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+		self.prior_var_factor = self.Dw / self.Zs * cfg.hyperpars.prior_variance
+
 
 	def get_features_mat(self,X):
 		"""
@@ -142,18 +125,19 @@ class RRTPRegularFourierFeatures(ReducedRankStudentTProcessBase):
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
 
-	def get_logdetSigma_weights(self):
-		return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
+	# def get_logdetSigma_weights(self):
+	# 	return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
 
 
-class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
+class RRPRandomFourierFeatures(ReducedRankProcessBase):
 
 	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
 
 		super().__init__(dim,cfg,spectral_density,dim_out_int)
 
 		assert cfg.prior_var_factor > 0 and cfg.prior_var_factor <= 1.0
-		self.prior_var = cfg.prior_var # Here, the prior variance is user-specified. In RRTPRegularFourierFeatures is given by the spectral density, so therein we use the factor self.prior_var_factor; here it's not necessary
+		self.prior_var = cfg.hyperpars.prior_variance # Here, the prior variance is user-specified. In RRPRegularFourierFeatures is given by the spectral density, so therein we use the factor self.prior_var_factor; here it's not necessary
+		self.Nfeat = self.W_samples.shape[0]
 
 	def get_features_mat(self,X):
 		"""
@@ -178,19 +162,19 @@ class RRTPRandomFourierFeatures(ReducedRankStudentTProcessBase):
 	def get_Sigma_weights_inv_times_noise_var(self):
 		return self.get_noise_var() * (self.Nfeat/self.prior_var) * tf.eye(self.Nfeat)
 
-	def get_logdetSigma_weights(self):
-		return self.Nfeat*tf.math.log(self.prior_var)
+	# def get_logdetSigma_weights(self):
+	# 	return self.Nfeat*tf.math.log(self.prior_var)
 
-class RRTPSarkkaFeatures(ReducedRankStudentTProcessBase):
+class RRPSarkkaFeatures(ReducedRankProcessBase):
 	"""
 
 	TODO: Incompatible with current implementation of SpectralDensityBase.
-	Needs refactoring following RRTPRandomFourierFeatures
+	Needs refactoring following RRPRandomFourierFeatures
 	"""
 
 	def __init__(self, dim: int, cfg: dict):
 
-		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
+		raise NotImplementedError("Needs refactoring following RRPRandomFourierFeatures")
 
 		super().__init__(dim,cfg)
 
@@ -242,16 +226,16 @@ class RRTPSarkkaFeatures(ReducedRankStudentTProcessBase):
 		S_vec = self.spectral_density.unnormalized_density(omega_in)
 		return tf.reduce_sum(tf.math.log(S_vec))
 
-class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
+class RRPQuadraticFeatures(ReducedRankProcessBase):
 	"""
 
 	TODO: Incompatible with current implementation of SpectralDensityBase.
-	Needs refactoring following RRTPRandomFourierFeatures
+	Needs refactoring following RRPRandomFourierFeatures
 	"""
 
 	def __init__(self, dim: int, cfg: dict):
 
-		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
+		raise NotImplementedError("Needs refactoring following RRPRandomFourierFeatures")
 
 		super().__init__(dim,cfg)
 
@@ -289,16 +273,16 @@ class RRTPQuadraticFeatures(ReducedRankStudentTProcessBase):
 		# TODO: Test this function
 		return tf.reduce_sum(self.log_diag_vals)
 
-class RRTPLQRfeatures(ReducedRankStudentTProcessBase):
+class RRPLQRfeatures(ReducedRankProcessBase):
 	"""
 
 	TODO: Incompatible with current implementation of SpectralDensityBase.
-	Needs refactoring following RRTPRandomFourierFeatures
+	Needs refactoring following RRPRandomFourierFeatures
 	"""
 
 	def __init__(self, dim: int, cfg: dict):
 
-		raise NotImplementedError("Needs refactoring following RRTPRandomFourierFeatures")
+		raise NotImplementedError("Needs refactoring following RRPRandomFourierFeatures")
 
 		super().__init__(dim,cfg)
 

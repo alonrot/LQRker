@@ -102,23 +102,39 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 
 class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 
-	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int, use_nominal_model=True):
 		assert dim == 1
+		self.use_nominal_model = use_nominal_model
 		super().__init__(cfg,cfg_sampler,dim)
 
 	def _nonlinear_system_fun(self,x):
-		return self.kink_dynamics(x)
+		return self.kink_dynamics(x,use_nominal_model=self.use_nominal_model)
 
 	@staticmethod
-	def kink_dynamics(x):
+	def kink_dynamics(x,use_nominal_model=True):
 		"""
 
 		Kink function, as described in [1]
 
+		f(x) = 0.8 + (x + 0.2)*(1. - 5./(1 + tf.math.exp(-2.*x)) )
+
 		[1] Ialongo, A.D., Van Der Wilk, M., Hensman, J. and Rasmussen, C.E., 2019, May. 
 		Overcoming mean-field approximations in recurrent Gaussian process models. In International Conference on Machine Learning (pp. 2931-2940). PMLR.
 		"""
-		return 0.8 + (x + 0.2)*(1. - 5./(1 + tf.math.exp(-2.*x)) )
+
+		# True parameters:
+		a0 = 0.8
+		a1 = 0.2
+		a2 = -2.
+
+		if not use_nominal_model:
+			pdb.set_trace()
+			a0 = -0.2
+			a1 = 0.9
+			a2 = -0.5
+
+		# return 0.8 + (x + 0.2)*(1. - 5./(1 + tf.math.exp(-2.*x)) )
+		return a0 + (x + a1)*(1. - 5./(1 + tf.math.exp(a2*x)) )
 
 
 
@@ -188,30 +204,44 @@ class KinkSharpSpectralDensity(NonLinearSystemSpectralDensity):
 
 class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
 
-	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int, use_nominal_model=True):
 		
 		assert dim == 2
-		self.deltaT = cfg.deltaT
+		self.use_nominal_model = use_nominal_model
 		super().__init__(cfg,cfg_sampler,dim)
-
 
 	def _nonlinear_system_fun(self,x):
 		"""
 		x: [Npoints,self.dim]
 		"""
 
-		return self._controlled_dynamics(x=x[:,0:1],y=x[:,1::],u1=0.,u2=0.)
+		return self._controlled_vanderpol_dynamics(x=x[:,0:1],y=x[:,1::],u1=0.,u2=0.,use_nominal_model=self.use_nominal_model)
 
-	def _controlled_dynamics(self,x, y, u1, u2):
-	    
-	    x_dot =-y + u1
-	    y_dot = x - y + (x**2)*y + u2
+	@staticmethod
+	def _controlled_vanderpol_dynamics(x, y, u1, u2, use_nominal_model=True):
+		
+		deltaT = 0.01 # NOTE: move this up to user choices
 
-	    x_next = x_dot*self.deltaT + x
-	    y_next = y_dot*self.deltaT + y
-	    xy_next = tf.concat([x_next,y_next],axis=1)
+		# True parameters:
+		a0 = 1.0
+		a1 = 1.0
+		a2 = 1.0
+		a3 = 1.0
 
-	    return xy_next
+		if not use_nominal_model:
+			a0 = 2.0
+			a1 = 0.1
+			a2 = 1.5
+			a3 = 0.01
+
+		x_dot =-a0*y + u1
+		y_dot = a1*x - a2*y + a3*(x**2)*y + u2
+
+		x_next = x_dot*deltaT + x
+		y_next = y_dot*deltaT + y
+		xy_next = tf.concat([x_next,y_next],axis=1)
+
+		return xy_next
 
 
 	# def _log_prob(self,value):
