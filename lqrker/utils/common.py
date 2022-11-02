@@ -3,6 +3,7 @@ import tensorflow as tf
 import math
 import pdb
 import numpy as np
+import scipy
 
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -33,12 +34,54 @@ class CommonUtils():
 		return vectorized_grid
 
 	@staticmethod
+	def fix_eigvals_other_way(Kmat,verbosity=False):
+
+		# Work with numpy because tf.linalg.eig and tf.linalg.eigvals return COMPLEX eigenvalues due to numerical precision issues.
+		# This shouldn't be the case because BB_sym is symmetric and real.
+		if tf.is_tensor(Kmat):
+			Kmat = Kmat.numpy()
+
+		if np.any(np.isnan(Kmat)):
+			logger.info("The input matrix contains nans...")
+			pdb.set_trace()
+
+		assert np.all(Kmat == Kmat.T), "Matrix must be symmetric!"
+
+		try:
+			Kmat_sol = scipy.linalg.cholesky_banded(Kmat)
+		except:
+			if verbosity: logger.info("Kmat needs to be fixed...")
+		else:
+			if verbosity: logger.info("Kmat is PD; nothing to fix...")
+			return Kmat_sol
+
+
+		# Get the lowest eigenvalue in absolute value:
+		eig_min = np.amin(np.linalg.eigvalsh(Kmat))
+		assert eig_min < 0.0
+		eig_min_abs = abs(eig_min)
+
+		# Compute its log:
+		log_eig_min_abs = np.math.log10(eig_min_abs)
+
+		Nfac = np.ceil(10**(-(-7-log_eig_min_abs)))
+
+		AAt_sym_corrected = AA_sym / Nfac + 1e-6*tf.eye(AA_sym.shape[0])
+		Lchol = np.linalg.cholesky(AAt_sym_corrected) * np.sqrt(Nfac)
+
+		return Lchol
+
+	@staticmethod
 	def fix_eigvals(Kmat,verbosity=False):
 		"""
 
 		Among the negative eigenvalues, get the 'most negative one'
 		and return it with flipped sign
 		"""
+
+		if tf.math.reduce_any(tf.math.is_nan(Kmat)):
+			logger.info("The input matrix contains nans...")
+			pdb.set_trace()
 
 		Kmat_sol = tf.linalg.cholesky(Kmat)
 		# Kmat_sym = 0.5*(Kmat + tf.transpose(Kmat))

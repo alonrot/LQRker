@@ -207,7 +207,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		Kinv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) ) # [Npoints,Npoints]
 		return Kinv
 
-	def get_log_det_prior_cov_inverse(self):
+	def get_log_det_prior_cov_inverse(self,Kinv=None):
 		"""
 
 		See the explanation in self.get_prior_cov_inverse()
@@ -216,7 +216,10 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		"""
 
-		Kinv_no_noise = self.get_noise_var() * self.get_prior_cov_inverse() # [Npoints,Npoints]
+		if Kinv is None:
+			Kinv = self.get_prior_cov_inverse()
+
+		Kinv_no_noise = self.get_noise_var() * Kinv # [Npoints,Npoints]
 		log_det_Kinv_no_noise = tf.linalg.logdet(Kinv_no_noise)
 
 		return log_det_Kinv_no_noise - 2.*Kinv_no_noise.shape[0]*self.get_log_noise_std()
@@ -247,7 +250,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
 		"""
-		model_complexity = 0.5*self.get_log_det_prior_cov_inverse()
+		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv)
 
 		# Compute constant terms:
 		const = tf.math.lgamma(0.5*(nu + self.X.shape[0])) - 0.5*self.X.shape[0]*tf.math.log(math.pi*(nu-2.)) - tf.math.lgamma(0.5*nu)
@@ -267,20 +270,24 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
 		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-		self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
 
 		# Compute data fit:
+		logger.info("Computing data fit term...")
 		Kinv = self.get_prior_cov_inverse()
 		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
 		data_fit = -0.5*tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
 
 		# Compute model complexity:
+		logger.info("Computing model complexity term...")
 		"""
 		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
 		"""
-		model_complexity = 0.5*tf.linalg.det(Kinv)
+		# model_complexity = 0.5*tf.linalg.logdet(Kinv)
+		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv) # This operation is O(N^3), where N is the number of datapoints
 
 		# Compute loss as -log(p(y))
+		logger.info("Done! Returning loss...")
 		loss_val = -data_fit - model_complexity
 
 		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
@@ -295,6 +302,17 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			return self.get_MLII_loss_student_t()
 
 	def train_model(self,verbosity=False):
+		"""
+		TODO: Speed up the training by:
+		1) Achieving O(N) complexity on the get_MLII_loss_gaussian() loss
+		2) Exploring the options mentioned in the links below
+		for speeding up TF2
+		"""
+		# https://github.com/tensorflow/tensorflow/issues/30596
+		# https://stackoverflow.com/a/61349421
+		tf.function(self._train_model(verbosity))
+
+	def _train_model(self,verbosity=False):
 		"""
 
 		"""
@@ -313,8 +331,11 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			with tf.GradientTape() as tape:
 				loss_value = self.get_MLII_loss(which_process=self.which_process)
 
+			logger.info("Training the model... 1")
 			grads = tape.gradient(loss_value, self.trainable_weights)
+			logger.info("Training the model... 2")
 			optimizer.apply_gradients(zip(grads, self.trainable_weights))
+			logger.info("Training the model... 3")
 
 			if (epoch+1) % 10 == 0:
 				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.epochs, float(loss_value)))
@@ -327,6 +348,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 				loss_value_curr = loss_value
 			
 			epoch += 1
+			logger.info("Training the model... 4")
 
 		if done == True:
 			logger.info("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
@@ -355,7 +377,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			assert Y.ndim == 2
 			self.Y = Y
 
-	def _update_features(self,verbosity=False):
+	def _update_features(self,verbosity=True):
 		"""
 
 		Compute some relevant quantities that will be later used for prediction:
@@ -368,14 +390,21 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		PhiXTPhiX = tf.transpose(PhiX) @ PhiX
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
 
-		# pdb.set_trace()
 		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
-		AA_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
+		BB_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
+		# pdb.set_trace()
+
+		if np.any(np.isnan(BB_sym)):
+			logger.info("nans in BB_sym"); pdb.set_trace()
+		if np.any(np.isinf(BB_sym)):
+			logger.info("infs in BB_sym"); pdb.set_trace()
 
 		if verbosity: logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
-		AA_sym = CommonUtils.fix_eigvals(AA_sym,verbosity=verbosity)
 
-		Lchol = tf.linalg.cholesky(AA_sym) # Lower triangular A = L.L^T
+		BB_sym = CommonUtils.fix_eigvals(BB_sym,verbosity=verbosity)
+		# BB_sym = CommonUtils.fix_eigvals_other_way(BB_sym,verbosity=verbosity)
+
+		Lchol = tf.linalg.cholesky(BB_sym) # Lower triangular A = L.L^T
 		self.Lchol = Lchol
 		self.PhiX = PhiX
 		# if update_global_vars:

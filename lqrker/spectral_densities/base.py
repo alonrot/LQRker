@@ -209,6 +209,10 @@ class SpectralDensityBase(ABC):
 
 		return Sw_vec, phiw_vec, omegapred
 
+	def update_Wsamples_uniform(self,omega_min,omega_max,Nsamples):
+		self.W_points = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
+		self.Sw_points, self.phiw_points = self.unnormalized_density(self.W_points)
+
 	def update_Wsamples(self,Nsamples=None):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wsamples_from_Sw(Nsamples)
 

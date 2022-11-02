@@ -1,3 +1,3 @@
 from .reduced_rank_process.base import ReducedRankProcessBase
-from .reduced_rank_process.features import RRPRegularFourierFeatures, RRPRandomFourierFeatures, RRPDiscreteCosineFeatures
+from .reduced_rank_process.features import RRPRegularFourierFeatures, RRPRandomFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures
 from .reduced_rank_process.MOrrp import MultiObjectiveReducedRankProcess

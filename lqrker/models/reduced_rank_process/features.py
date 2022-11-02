@@ -11,6 +11,35 @@ from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
 
 
+class RRPLinearFeatures(ReducedRankProcessBase):
+	"""
+
+	"""
+
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
+
+		super().__init__(dim,cfg,spectral_density,dim_out_int)
+
+		# self.Nfeat = self.W_samples.shape[0]
+		assert cfg.hyperpars.prior_variance > 0
+		self.prior_var = cfg.hyperpars.prior_variance
+
+	def get_features_mat(self,X):
+		"""
+
+		X: [Npoints, dim]
+		return: PhiX: [Npoints, Nfeat]
+		"""
+		return X
+
+	def get_prior_mean(self):
+		return tf.zeros((self.W_samples.shape[0],1)) # [Npoints,1]
+
+	def get_cholesky_of_cov_of_prior_beta(self):
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var,(-1)))) # T-Student's process, function prediction f(x)
+		
+	def get_Sigma_weights_inv_times_noise_var(self):
+		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var,(-1)))
 
 class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 	"""

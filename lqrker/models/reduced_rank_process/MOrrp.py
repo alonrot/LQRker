@@ -7,7 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures
+from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -32,7 +32,8 @@ class MultiObjectiveReducedRankProcess():
 		"""
 
 		self.dim_in = dim
-		self.dim_out = dim
+		self.dim_out = Ytrain.shape[1] # TODO: pass this as an actual input argument
+		# assert dim == Ytrain.shape[1]
 
 		# We use a single spectral density instance for all the models. For that instance, we compute the needed frequencies
 		# and use them throughout all the models
@@ -40,8 +41,10 @@ class MultiObjectiveReducedRankProcess():
 
 		self.rrgpMO = [None]*self.dim_out
 		for ii in range(self.dim_out):
+			# raise ValueError("Figure out what features should we use for Van der pole (probably LINEAR, not RRGPRandomFourierFeatures(); because once lifted to the observable space, we're going linear); have a way to specify this in the config file; HARCODED!!!")
 			# self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
-			self.rrgpMO[ii] = RRPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			# self.rrgpMO[ii] = RRPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+			self.rrgpMO[ii] = RRPLinearFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
 			self.rrgpMO[ii].select_output_dimension(dim_out_ind=ii)
 
 		self.update_model(X=Xtrain,Y=Ytrain)
@@ -114,6 +117,28 @@ class MultiObjectiveReducedRankProcess():
 			return tf.stack(out,axis=1) # [Npoints,self.dim_out,Nsamples]
 
 		return nonlinfun_sampled_callable
+
+	def get_predictive_beta_distribution(self):
+		"""
+
+		return:
+			MO_mean_beta: [self.dim_out,self.dim_in]
+			MO_cov_beta_chol: [self.dim_out,self.dim_in,self.dim_in]
+		"""
+
+		MO_mean_beta = [None]*self.dim_out
+		MO_cov_beta_chol = [None]*self.dim_out
+
+		# Compute predictive moments:
+		for ii in range(self.dim_out):
+			MO_mean_beta[ii], MO_cov_beta_chol[ii] = self.rrgpMO[ii].get_predictive_beta_distribution()
+			MO_mean_beta[ii] = tf.reshape(MO_mean_beta[ii],(1,-1))
+
+		MO_mean_beta = tf.concat(MO_mean_beta,axis=0)
+		MO_cov_beta_chol = tf.stack(MO_cov_beta_chol,axis=0)
+
+		return MO_mean_beta, MO_cov_beta_chol
+
 
 	def train_model(self,verbosity=False):
 		for ii in range(self.dim_out):
