@@ -246,63 +246,93 @@ class MultiObjectiveReducedRankProcess():
 		"""
 		# Npoints = Nsamples # This should be viewed as the number of independent particles that we propagate, each of which has the dimension of the state
 		# Nsamples = 1 # This should be viewed as "how many samples per point?"
-		fx = self.get_sample_path_callable(Nsamples=Nsamples)
+		# fx = self.get_sample_path_callable(Nsamples=Nsamples)
 		# xsamples = np.zeros((traj_length,Nsamples,self.dim_out),dtype=np.float32)
-		xsamples = np.zeros((traj_length,self.dim_out,Nsamples),dtype=np.float32)
+		# xsamples = np.zeros((traj_length,self.dim_out,Nsamples),dtype=np.float32)
 		# xsamples[0,...] = np.vstack([x0]*Nsamples)
-		xsamples[0,...] = np.stack([x0]*Nsamples,axis=2)
-		for ii in range(0,traj_length-1):
 
-			# xsamples_mean = np.mean(xsamples[ii,...],axis=0,keepdims=True)
-			xsamples_mean = np.mean(xsamples[ii:ii+1,...],axis=2)
+		assert Nsamples == 1, "We need one sample per roll-out"
+		Nrollouts = 15 # Now, each roll-out constitutes a different sample
+		xsamples = np.zeros((Nrollouts,traj_length,self.dim_out),dtype=np.float32)
 
-			if u_traj is None:
-				# xsamples_in = xsamples[ii,...]
-				xsamples_in = xsamples_mean
-			else:
-				u_traj_ii = u_traj[ii:ii+1,:] # [1,dim_u]
-				# xsamples_in = np.hstack([xsamples[ii,...],np.vstack([u_traj_ii]*Nsamples)])
-				# xsamples_in = np.hstack([xsamples_mean,u_traj_ii])
-				xsamples_in = np.concatenate([xsamples_mean,u_traj_ii],axis=1)
+		# pdb.set_trace()
+		# xsamples[0,...] = np.stack([x0]*Nsamples,axis=2)
+		xsamples[:,0,:] = np.vstack([x0]*Nrollouts) # Same initial condition for all roll-outs
 
-			xsample_tp = tf.convert_to_tensor(value=xsamples_in,dtype=np.float32)
+		for ss in range(Nrollouts):
+
+			logger.info("Rollout {0:d} / {0:d}".format(ss+1,Nrollouts))
+			fx = self.get_sample_path_callable(Nsamples=Nsamples)
+
+			for ii in range(0,traj_length-1):
+
+				# xsamples_mean = np.mean(xsamples[ii,...],axis=0,keepdims=True)
+				# xsamples_mean = np.mean(xsamples[ii:ii+1,...],axis=2)
+
+				if u_traj is None:
+					# xsamples_in = xsamples[ii,...]
+					# xsamples_in = xsamples_mean
+					xsamples_in = xsamples[ss,ii:ii+1,:]
+				else:
+					u_traj_ii = u_traj[ii:ii+1,:] # [1,dim_u]
+					# xsamples_in = np.hstack([xsamples[ii,...],np.vstack([u_traj_ii]*Nsamples)])
+					# xsamples_in = np.hstack([xsamples_mean,u_traj_ii])
+					xsamples_in = np.concatenate([xsamples[ss,ii:ii+1,:],u_traj_ii],axis=1) # [Npoints,self.dim_in], with Npoints=1
+
+				xsample_tp = tf.convert_to_tensor(value=xsamples_in,dtype=np.float32) # [Npoints,self.dim_in], with Npoints=1
 
 
-			# Por algun motivo,
-			# self.rrgpMO[0].get_predictive_beta_distribution()
-			# self.rrgpMO[1].get_predictive_beta_distribution()
-			# son diferentes.... The mean is different; the covariance is the same
-			# Then, weirdly enough, xsamples_next are all the same values...
-			# But are they exactly the same xsamples_next[0] == xsamples_next[0] ??
+				# Por algun motivo,
+				# self.rrgpMO[0].get_predictive_beta_distribution()
+				# self.rrgpMO[1].get_predictive_beta_distribution()
+				# son diferentes.... The mean is different; the covariance is the same
+				# Then, weirdly enough, xsamples_next are all the same values...
+				# But are they exactly the same xsamples_next[0] == xsamples_next[0] ??
 
-			# xsamples_next = fx(xsample_tp) # [Nsamples,self.dim_out,Nsamples]
-			# xsamples[ii+1,...] = tf.reshape(xsamples_next,(Nsamples,self.dim_out))
-			xsamples[ii+1,...] = fx(xsample_tp) # [Npoints,self.dim_out,Nsamples]
+				# xsamples_next = fx(xsample_tp) # [Nsamples,self.dim_out,Nsamples]
+				# xsamples[ii+1,...] = tf.reshape(xsamples_next,(Nsamples,self.dim_out))
+				# xsamples[ii+1,...] = fx(xsample_tp) # [Npoints,self.dim_out,Nsamples]
 
-			if plotting and self.dim_out == 1:
+				xsamples_next = fx(xsample_tp) # [Npoints,self.dim_out,Nsamples], with Npoints=1, Nsamples=1
+				# xsamples[ss,ii:ii+1,...] = tf.reshape(xsamples_next,(1,self.dim_out))
+				xsamples[ss,ii+1:ii+2,:] = tf.reshape(xsamples_next,(1,self.dim_out))
 
-				# Plot what's going on at each iteration here:
-				MO_mean_pred, std_diag_pred = self.predict_at_locations(xpred)
-				hdl_splots[0].cla()
-				hdl_splots[0].plot(xpred,MO_mean_pred,linestyle="-",color="b",lw=3)
-				hdl_splots[0].fill_between(xpred[:,0],MO_mean_pred[:,0] - 2.*std_diag_pred[:,0],MO_mean_pred[:,0] + 2.*std_diag_pred[:,0],color="cornflowerblue",alpha=0.5)
-				for n_samples in range(xsamples.shape[2]):
-					hdl_splots[0].plot(xsamples[0:ii,0,n_samples],xsamples[1:ii+1,0,n_samples],marker=".",linestyle="--",color=colors_arr[n_samples,0:3],lw=0.5,markersize=5)
-				# hdl_splots[0].set_xlim([xmin,xmax])
-				hdl_splots[0].set_ylabel(r"$x_{t+1}$",fontsize=fontsize_labels)
-				# pdb.set_trace()
-				for n_samples in range(xsamples.shape[2]):
-					hdl_splots[0].plot(xsamples[0,0,n_samples],xsamples[1,0,n_samples],marker="o",markersize=10)
-				# hdl_splots[0].plot(xpred,yplot_true_fun,marker="None",linestyle="-",color="grey",lw=1)
-				# hdl_splots[0].plot(xpred,yplot_sampled_fun,marker="None",linestyle="--",color="r",lw=0.5)
+				if plotting and self.dim_out == 1:
 
-				plt.pause(0.5)
-				# input()
+					# Plot what's going on at each iteration here:
+					MO_mean_pred, std_diag_pred = self.predict_at_locations(xpred)
+					hdl_splots[0].cla()
+					hdl_splots[0].plot(xpred,MO_mean_pred,linestyle="-",color="b",lw=3)
+					hdl_splots[0].fill_between(xpred[:,0],MO_mean_pred[:,0] - 2.*std_diag_pred[:,0],MO_mean_pred[:,0] + 2.*std_diag_pred[:,0],color="cornflowerblue",alpha=0.5)
+					for n_samples in range(xsamples.shape[2]):
+						hdl_splots[0].plot(xsamples[0:ii,0,n_samples],xsamples[1:ii+1,0,n_samples],marker=".",linestyle="--",color=colors_arr[n_samples,0:3],lw=0.5,markersize=5)
+					# hdl_splots[0].set_xlim([xmin,xmax])
+					hdl_splots[0].set_ylabel(r"$x_{t+1}$",fontsize=fontsize_labels)
+					# pdb.set_trace()
+					for n_samples in range(xsamples.shape[2]):
+						hdl_splots[0].plot(xsamples[0,0,n_samples],xsamples[1,0,n_samples],marker="o",markersize=10)
+					# hdl_splots[0].plot(xpred,yplot_true_fun,marker="None",linestyle="-",color="grey",lw=1)
+					# hdl_splots[0].plot(xpred,yplot_sampled_fun,marker="None",linestyle="--",color="r",lw=0.5)
 
-		xsamples_X = xsamples[0:-1,...]
-		xsamples_Y = xsamples[1::,...]
+					plt.pause(0.5)
+					# input()
+
+
+		# xsamples_X = xsamples[0:-1,...]
+		# xsamples_Y = xsamples[1::,...]
+
+		# pdb.set_trace()
+
+		# xsamples_X = np.reshape(xsamples[:,0:-1,:],(traj_length-1,self.dim_out,Nrollouts),order="F") # [traj_length-1,self.dim_out,Nrollouts]
+		# xsamples_Y = np.reshape(xsamples[:,1::,:],(traj_length-1,self.dim_out,Nrollouts),order="F") # [traj_length-1,self.dim_out,Nrollouts]
+
+		xsamples_X = xsamples[:,0:-1,:] # [Nrollouts,traj_length-1,self.dim_out]
+		xsamples_Y = xsamples[:,1::,:] # [Nrollouts,traj_length-1,self.dim_out]
+
+		# assert np.all(xsamples_X[:,:,0] == xsamples[0,:,:])
 
 		if sort:
+			raise NotImplementedError("Incompatible with xsamples = np.zeros((Nrollouts,traj_length,self.dim_out),dtype=np.float32)")
 			assert x0.shape[1] == 1, "This only makes sense in 1D"
 
 			xsamples_X_red = xsamples_X[:,0,:]
@@ -315,6 +345,7 @@ class MultiObjectiveReducedRankProcess():
 			xsamples_Y_red_sorted = xsamples_Y_red[ind_sort]
 			xsamples_Y = xsamples_Y_red_sorted[:,0,:]
 		elif self.dim_in == 1:
+			raise NotImplementedError("Incompatible with xsamples = np.zeros((Nrollouts,traj_length,self.dim_out),dtype=np.float32)")
 			xsamples_X = xsamples_X[:,0,:]
 			xsamples_Y = xsamples_Y[:,0,:]
 
