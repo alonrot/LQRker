@@ -76,16 +76,12 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			self.log_nu = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(nu_init-2.0)), trainable=True,name="log_nu")
 
 		self.dim = dim
-
-		sigma_n_init = cfg.hyperpars.sigma_n_init
-		# L_init = cfg.hyperpars.L_init
-
 		
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(sigma_n_init)), trainable=True,name="log_noise_std")
-		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(L_init)), trainable=True,name="log_L")
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std")
+		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
 
 		# Learning parameters:
 		self.learning_rate = cfg.learning.learning_rate
@@ -265,8 +261,17 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 	def get_MLII_loss_gaussian(self):
 		"""
-		
+
+		TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
+
+		TODO:
+		1) We're mixing the prior mean with the posterior covariance. See Rasmussen
+
+
 		"""
+
+
+		raise NotImplementedError("Here we need the inverse of the prior; but the equations look like the predictive distribution; double check we're doing the right thing....")
 
 		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
 		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
@@ -292,6 +297,50 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
 			pdb.set_trace()
+
+		return loss_val
+
+	def get_MLII_loss_gaussian_predictive(self,xpred):
+		"""
+
+		xpred: [Npoints,dim_in]
+
+		TODO:
+		1) We're mixing the prior mean with the posterior covariance. See Rasmussen
+		2) Can we get the loss using only the cholesky?
+		3) We need to add the noise to the covariance
+
+
+
+		TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
+		"""
+
+		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
+		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+
+		mean_beta, cov_beta_chol = self.predict_beta(from_prior=False)
+
+		logger.info("Computing matrix of features Phi(xpred) ...")
+		Phi_pred = self.get_features_mat(xpred) # [Npoints, Nfeat]
+
+		# pdb.set_trace()
+		mean_pred = Phi_pred @ mean_beta # [Npoints,1]
+		cov_pred_chol = Phi_pred @ cov_beta_chol # [Npoints, Nfeat]
+		# They should both be: [Npoints,]
+
+		cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol)
+
+		# pdb.set_trace()
+		# data_fit = -0.5*((self.Y - mean_pred)/cov_pred_chol)**2
+
+		# aux = (self.Y - mean_pred) @ cov_pred_chol
+
+		# model_complexity = -0.5*tf.math.log(2.*math.pi) * cov_pred_chol
+
+		# loss_val = 
+
+
 
 		return loss_val
 
@@ -389,6 +438,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		PhiXTPhiX = tf.transpose(PhiX) @ PhiX
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
+		# pdb.set_trace()
 
 		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
 		BB_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
@@ -401,10 +451,12 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		if verbosity: logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
 
-		BB_sym = CommonUtils.fix_eigvals(BB_sym,verbosity=verbosity)
+		CC_sym = CommonUtils.fix_eigvals(BB_sym,verbosity=verbosity)
 		# BB_sym = CommonUtils.fix_eigvals_other_way(BB_sym,verbosity=verbosity)
 
-		Lchol = tf.linalg.cholesky(BB_sym) # Lower triangular A = L.L^T
+		DD_sym = 0.5*(CC_sym + tf.transpose(CC_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
+
+		Lchol = tf.linalg.cholesky(DD_sym) # Lower triangular A = L.L^T
 		self.Lchol = Lchol
 		self.PhiX = PhiX
 		# if update_global_vars:
@@ -516,8 +568,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	def predict_at_locations(self,xpred,from_prior=False):
 		"""
 
-		Optimize this by returning the diagonal elements of the cholesky decomposition of cov_pred
-
+		xpred: [Npoints, dim]
 		"""
 
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
@@ -545,11 +596,14 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
 
 		Nfeat = cov_beta_chol.shape[0]
-		sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples)
-		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0
+		sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
+		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0 # [Nfeat,1] + [Nfeat,Nfeat] @ [Nfeat,Nsamples]
 
 		def nonlinfun_sampled_callable(x):
-			return self.get_features_mat(x) @ aux # [Npoints,Nsamples]
+			"""
+			x: [Npoints, self.dim_in]
+			"""
+			return self.get_features_mat(x) @ aux # [Npoints, Nfeat] @ [Nfeat,Nsamples] = [Npoints,Nsamples]
 
 		return nonlinfun_sampled_callable
 

@@ -24,27 +24,38 @@ plt.rc('legend',fontsize=fontsize_labels+2)
 
 class MultiObjectiveReducedRankProcess():
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain):
+	def __init__(self, dim_in: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain):
 
 		"""
 		
 		Initialize "dim" number of RRPRegularFourierFeatures() models, one per output channel		
+
+		We use a single spectral density instance for all the models. For that instance, 
+		we compute the needed frequencies and use them throughout all the models
+
 		"""
+		self.dim_in = dim_in
+		self.dim_out = Ytrain.shape[1]
 
-		self.dim_in = dim
-		self.dim_out = Ytrain.shape[1] # TODO: pass this as an actual input argument
-		# assert dim == Ytrain.shape[1]
-
-		# We use a single spectral density instance for all the models. For that instance, we compute the needed frequencies
-		# and use them throughout all the models
-		self.spectral_density = spectral_density 
+		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures"]
 
 		self.rrgpMO = [None]*self.dim_out
 		for ii in range(self.dim_out):
-			# raise ValueError("Figure out what features should we use for Van der pole (probably LINEAR, not RRGPRandomFourierFeatures(); because once lifted to the observable space, we're going linear); have a way to specify this in the config file; HARCODED!!!")
-			# self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
-			# self.rrgpMO[ii] = RRPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
-			self.rrgpMO[ii] = RRPLinearFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=self.spectral_density)
+
+			if cfg.gpmodel.which_features == "RRPLinearFeatures":
+				self.rrgpMO[ii] = RRPLinearFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density)
+			elif cfg.gpmodel.which_features == "RRPDiscreteCosineFeatures":
+				self.rrgpMO[ii] = RRPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density)
+
+
+				# self.rrgpMO[ii].update_model(Xtrain,Ytrain[:,ii:ii+1]) # Update model indexing the target outputs at the corresponding dimension
+				# self.rrgpMO[ii].get_MLII_loss_gaussian_predictive(xpred=Xtrain)
+
+			elif cfg.gpmodel.which_features == "RRPRegularFourierFeatures":
+				self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density)
+			elif cfg.gpmodel.which_features == "RRPRandomFourierFeatures":
+				self.rrgpMO[ii] = RRPRandomFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density)
+
 			self.rrgpMO[ii].select_output_dimension(dim_out_ind=ii)
 
 		self.update_model(X=Xtrain,Y=Ytrain)
@@ -107,6 +118,13 @@ class MultiObjectiveReducedRankProcess():
 	def get_sample_path_callable(self,Nsamples,from_prior=False):
 
 		def nonlinfun_sampled_callable(x):
+			"""
+			Args:
+				x: [Npoints,self.dim_in]
+			
+			Returns:
+				function
+			"""
 
 			out = []
 			for ii in range(self.dim_out):
@@ -144,71 +162,122 @@ class MultiObjectiveReducedRankProcess():
 		for ii in range(self.dim_out):
 			self.rrgpMO[ii].train_model(verbosity)
 
-
-	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,Nsamples,sort=False,plotting=False):
+	def sample_state_space_from_prior_recursively(self,x0,Nsamples,u_traj,traj_length,sort=False,plotting=False):
 		"""
 
 		Pass two initial latent values
-		x0: [1,self.dim]
-		x1: [1,self.dim]
-
+		x0: [1,dim_x]
+		u_traj: [traj_length,dim_u]
+		
 		The GP won't be training during sampling, i.e., we won't call self.train_model()
-
 
 		return:
 		xsamples_X: [Npoints,self.dim_out,Nsamples]
 		xsamples_Y: [Npoints,self.dim_out,Nsamples]
 
-		"""
-
-		assert traj_length > 2
-		assert Nsamples > 0
-
-		xmin = -6.
-		xmax = +3.
-		Ndiv = 201
-		xpred = tf.linspace(xmin,xmax,Ndiv)
-		xpred = tf.reshape(xpred,(-1,1))
 
 		
+		TODO: Refactor as
+		Nsamples_per_particle <- Nsamples
+		Nparticles <- Npoints
+		"""
+
+		# Parsing arguments:
+		if u_traj is not None: # Concatenate the inputs to the model as (x_t,u_t)
+			print(" * Open-loop model x_{t+1} = f(x_t,u_t)\n * Input to the model: x0, and u_traj")
+			assert x0.shape[1] == self.dim_out
+			assert x0.shape[0] == 1
+			assert self.dim_in == self.dim_out + u_traj.shape[1]
+			assert traj_length == -1, "Pass -1 to emphasize that traj_length is inferred from u_traj"
+			traj_length = u_traj.shape[0]
+		else: # The input to the model is the state, directly
+			print(" * Closed-loop model x_{t+1} = f(x_t)\n * Input to the model: x0")
+			assert x0.shape[1] == self.dim_out
+			assert x0.shape[1] == self.dim_in
+			assert traj_length > 2
+
+		assert Nsamples > 0
+
 		colors_arr = cm.winter(np.linspace(0,1,Nsamples))
-
-		# yplot_true_fun = self.spectral_density._nonlinear_system_fun(xpred)
-		# yplot_sampled_fun = fx(xpred)
-
-		# Herein, we append (x0,x1). Note that these two points come from a different simulated roll-out of that of the points from the training data.
-		# That's fine because our model doesn't make any structural assumption about the data coming from a single MDP.
-		Xtraining, Ytraining = self.get_training_data()
-		Xtraining_and_new = tf.concat([Xtraining,x0],axis=0)
-		Ytraining_and_new = tf.concat([Ytraining,x1],axis=0)
-		# Xtraining_and_new = Xtraining
-		# Ytraining_and_new = Ytraining
-		self.update_model(X=Xtraining_and_new,Y=Ytraining_and_new)
-
-		# Xtmp, Ytmp = self.get_training_data()
-		# pdb.set_trace()
-
-		fx = self.get_sample_path_callable(Nsamples=Nsamples)
 
 		if plotting:
 			hdl_fig, hdl_splots = plt.subplots(2,1,figsize=(12,8),sharex=True)
 			hdl_fig.suptitle(r"Kink function simulation $x_{t+1} = f(x_t) + \varepsilon$"+", kernel: {0}".format("kink"),fontsize=fontsize_labels)
+			xmin = -6.; xmax = +3.; Ndiv = 201
+			xpred = tf.linspace(xmin,xmax,Ndiv)
+			xpred = tf.reshape(xpred,(-1,1))
 
+
+		"""
+		NOTE: 	This whole explanation assumes closed-loop, i.e. ut is not present, or ut=[].
+				However, extending xt to cinlude ut is trivial
+		
+		We need to distinguish between Nsamples and Npoints
+			fx() gets as input argument xt, with dimensions [Npoints,self.dim_in]
+			It computes, for each dimension, [Npoints,Nsamples] points,
+			i.e., for each input point, we get Nsamples samples
+			We repeat such operation for all dimensions.
+			Then, we stack together all samples for each dimension
+			in a vector x_{t+1} [Npoints,self.dim_out,Nsamples]
+
+		The naive approach would output Nsamples samples of the x_{t+1} vector
+		for each xt input.
+		x_{t+1} = f(xt)
+		xt: [Npoints,self.dim_out]
+		x_{t+1}: [Npoints,self.dim_out,Nsamples]
+
+		This poses several isues:
+			a) In order to get x_{t+2}, we need to pass x_{t+1} is input; and for that,
+			we need to reshape it as [Npoints*Nsamples, self.dim_out].
+			This means that x_{t+3} will be [Npoints*Nsamples**2, self.dim_out]
+			and that x_{t+H} will be [Npoints*Nsamples**(H-1), self.dim_out]
+			b) 
+
+		We propose to start off with a fixed number of Npoints, and get one independent sample 
+		for each point. To this end we need to:
+			1) At iteration=0, we gather Nsamples of x_{t+1}, i.e., 
+			x0: [Npoints,self.dim_out] = stack([x0]*Npoints,axis=0) (just copy the initial point for all Npoints)
+			2) Set Nsamples=1
+			3) Get x1 as x1 = fx(x0), with x1: [Npoints,self.dim_out,Nsamples=1]
+			4) Reshape: x1 <- x1 as [Npoints,self.dim_out]
+			5) Get x2 as x2 = fx(x1), with x2: [Npoints,self.dim_out,Nsamples=1]
+			6) Repeat		
+
+		"""
+		# Npoints = Nsamples # This should be viewed as the number of independent particles that we propagate, each of which has the dimension of the state
+		# Nsamples = 1 # This should be viewed as "how many samples per point?"
+		fx = self.get_sample_path_callable(Nsamples=Nsamples)
+		# xsamples = np.zeros((traj_length,Nsamples,self.dim_out),dtype=np.float32)
 		xsamples = np.zeros((traj_length,self.dim_out,Nsamples),dtype=np.float32)
-
-		# pdb.set_trace()
-
-
+		# xsamples[0,...] = np.vstack([x0]*Nsamples)
 		xsamples[0,...] = np.stack([x0]*Nsamples,axis=2)
-		xsamples[1,...] = np.stack([x1]*Nsamples,axis=2)
-		for ii in range(1,traj_length-1):
+		for ii in range(0,traj_length-1):
 
-			# print("ii:",ii)
+			# xsamples_mean = np.mean(xsamples[ii,...],axis=0,keepdims=True)
+			xsamples_mean = np.mean(xsamples[ii:ii+1,...],axis=2)
 
-			xsample_tp = tf.convert_to_tensor(value=xsamples[ii:ii+1,:,0],dtype=np.float32)
+			if u_traj is None:
+				# xsamples_in = xsamples[ii,...]
+				xsamples_in = xsamples_mean
+			else:
+				u_traj_ii = u_traj[ii:ii+1,:] # [1,dim_u]
+				# xsamples_in = np.hstack([xsamples[ii,...],np.vstack([u_traj_ii]*Nsamples)])
+				# xsamples_in = np.hstack([xsamples_mean,u_traj_ii])
+				xsamples_in = np.concatenate([xsamples_mean,u_traj_ii],axis=1)
 
-			# xsamples[ii+1,:] = self.sample_path_from_predictive(xpred=xsample_tp,Nsamples=Nsamples)
-			xsamples[ii+1,...] = fx(xsample_tp)
+			xsample_tp = tf.convert_to_tensor(value=xsamples_in,dtype=np.float32)
+
+
+			# Por algun motivo,
+			# self.rrgpMO[0].get_predictive_beta_distribution()
+			# self.rrgpMO[1].get_predictive_beta_distribution()
+			# son diferentes.... The mean is different; the covariance is the same
+			# Then, weirdly enough, xsamples_next are all the same values...
+			# But are they exactly the same xsamples_next[0] == xsamples_next[0] ??
+
+			# xsamples_next = fx(xsample_tp) # [Nsamples,self.dim_out,Nsamples]
+			# xsamples[ii+1,...] = tf.reshape(xsamples_next,(Nsamples,self.dim_out))
+			xsamples[ii+1,...] = fx(xsample_tp) # [Npoints,self.dim_out,Nsamples]
 
 			if plotting and self.dim_out == 1:
 
@@ -253,3 +322,4 @@ class MultiObjectiveReducedRankProcess():
 		# self.update_model(X=Xtraining,Y=Ytraining)
 
 		return xsamples_X, xsamples_Y
+

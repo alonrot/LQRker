@@ -24,6 +24,8 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		x_lim_max = cfg.x_lim_max
 		Nsteps_integration = cfg.Nsteps_integration
 
+		# pdb.set_trace()
+
 		xgrid_data = CommonUtils.create_Ndim_grid(xmin=x_lim_min,xmax=x_lim_max,Ndiv=Nsteps_integration,dim=self.dim) # [Ndiv**dim_x,dim_x]
 		self.xdata = tf.reshape(xgrid_data,(-1,self.dim)) # [Nsteps,dim]
 		self.dX = (self.xdata[1,-1] - self.xdata[0,-1])**self.dim # Equivalent to ((x_lim_max - x_lim_min) / Nsteps_integration)**self.dim
@@ -216,10 +218,34 @@ class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
 		x: [Npoints,self.dim]
 		"""
 
-		return self._controlled_vanderpol_dynamics(x=x[:,0:1],y=x[:,1::],u1=0.,u2=0.,use_nominal_model=self.use_nominal_model)
+		# return self._controlled_vanderpol_dynamics(x=x[:,0:1],y=x[:,1::],u1=0.,u2=0.,use_nominal_model=self.use_nominal_model)
+		return self._controlled_vanderpol_dynamics(state_vec=x,control_vec="gather_data_policy",use_nominal_model=self.use_nominal_model)
 
 	@staticmethod
-	def _controlled_vanderpol_dynamics(x, y, u1, u2, use_nominal_model=True):
+	# def _controlled_vanderpol_dynamics(x, y, u1, u2, use_nominal_model=True):
+	def _controlled_vanderpol_dynamics(state_vec, control_vec, use_nominal_model=True):
+		"""
+		state_vec: [Npoints,self.dim]
+		control_vec: [Npoints,dim_u]
+		"""
+
+		# State:
+		x = state_vec[:,0:1]
+		y = state_vec[:,1:2]
+
+		# Control:
+		if control_vec == "gather_data_policy" and state_vec.shape[1] == 4:
+			# Assume that we're concatenating the state and the control input
+			u1 = state_vec[:,2:3]
+			u2 = state_vec[:,3:4]
+		elif control_vec == "gather_data_policy" and state_vec.shape[1] == 2: 
+			u1 = 0.0
+			u2 = 0.0
+		elif control_vec == "gather_data_policy":
+			raise NotImplementedError("Wrong state dimensionality")
+		else:
+			u1 = control_vec[0:1,:]
+			u2 = control_vec[1:2,:]
 		
 		deltaT = 0.01 # NOTE: move this up to user choices
 
@@ -243,6 +269,101 @@ class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
 		xy_next = tf.concat([x_next,y_next],axis=1)
 
 		return xy_next
+
+class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int, use_nominal_model=True):
+		
+		# assert dim == 2
+		self.use_nominal_model = use_nominal_model
+		super().__init__(cfg,cfg_sampler,dim)
+
+	def _nonlinear_system_fun(self,x):
+		"""
+		x: [Npoints,self.dim]
+		"""
+
+		# return self._controlled_dubinscar_dynamics(x=x[:,0:1],y=x[:,1:2],th=x[:,2:3],u1=0.,u2=0.,use_nominal_model=self.use_nominal_model)
+		return self._controlled_dubinscar_dynamics(state_vec=x,control_vec="gather_data_policy",use_nominal_model=self.use_nominal_model)
+
+	@staticmethod
+	# def _controlled_dubinscar_dynamics(x, y, th, u1, u2, use_nominal_model=True):
+	def _controlled_dubinscar_dynamics(state_vec, control_vec, use_nominal_model=True):
+		"""
+		state_vec: [Npoints,self.dim]
+		control_vec: [Npoints,dim_u]
+		"""
+
+		# State:
+		x = state_vec[:,0:1]
+		y = state_vec[:,1:2]
+		th = state_vec[:,2:3]
+
+		# Control:
+		if isinstance(control_vec,str):
+			if control_vec == "gather_data_policy" and state_vec.shape[1] == 5:
+				print("@_controlled_dubinscar_dynamics: if control_vec == 'gather_data_policy' and state_vec.shape[1] == 5:")
+				u1 = state_vec[:,3:4]
+				u2 = state_vec[:,4:5]
+			elif control_vec == "gather_data_policy" and state_vec.shape[1] == 3: # Infinitely growing spiral
+				print("@_controlled_dubinscar_dynamics: elif control_vec == 'gather_data_policy' and state_vec.shape[1] == 3: # Infinitely growing spiral")
+				u1 = 0.16
+				u2 = 0.11
+			elif control_vec == "gather_data_policy":
+				print("@_controlled_dubinscar_dynamics: elif control_vec == 'gather_data_policy':")
+				u1 = 0.0
+				u2 = 0.0
+		else:
+			# print("@_controlled_dubinscar_dynamics: else")
+			u1 = control_vec[:,0:1]
+			u2 = control_vec[:,1:2]
+
+		# assert u1 >= 0.0, "u1 = {} | Do something about this! The input velocity can't be negative. One solution is to flip the heading angle 180 degrees when u1 is negative".format(u1)
+		# if u1 < 0.0:
+		# 	print("u1 < 0.0")
+
+
+		deltaT = 0.01 # NOTE: move this up to user choices
+
+		# True parameters:
+		vel_lin_min = 0.0
+		vel_ang_min = 0.0
+		vel_ang_max = +np.inf
+
+		# Add dynamics imperfections:
+		if not use_nominal_model:
+			vel_lin_min = 0.15 # velocity commands have a slack value
+			vel_ang_min = 0.1 # velocity commands have a slack value
+			vel_ang_max = 2.*np.pi*0.65
+
+		# Control input:
+		u1_in = np.sign(u1)*np.clip(abs(u1),vel_lin_min,np.inf)
+		u2_in = np.sign(u2)*np.clip(abs(u2),vel_ang_min,vel_ang_max)
+
+		# Integrate dynamics:
+		x_next = deltaT*u1_in*np.cos(th) + x
+		y_next = deltaT*u1_in*np.sin(th) + y
+		th_next = deltaT*u2_in + th
+
+		if np.any(np.isinf(x_next)):
+			print("x_next is inf")
+			pdb.set_trace()
+
+		if np.any(np.isinf(y_next)):
+			print("x_next is inf")
+			pdb.set_trace()
+
+		if np.any(np.isinf(th_next)):
+			print("x_next is inf")
+			pdb.set_trace()
+
+		xyth_next = tf.concat([x_next,y_next,th_next],axis=1)
+
+		if np.all(xyth_next == 0.0):
+			print("xyth_next is all zeroes")
+			pdb.set_trace()
+
+		return xyth_next
 
 
 	# def _log_prob(self,value):

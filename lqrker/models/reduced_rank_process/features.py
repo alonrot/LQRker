@@ -73,7 +73,10 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 		"""
 
 		# pdb.set_trace()
-		WX = X @ tf.transpose(self.W_samples) # [Npoints, Nfeat]
+		try:
+			WX = X @ tf.transpose(self.W_samples) # [Npoints, Nfeat]
+		except:
+			pdb.set_trace()
 		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec)) # [Npoints, Nfeat]
 
 		return harmonics_vec
@@ -86,7 +89,15 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
+
+		S_samples_vec_local = np.clip(self.S_samples_vec,1e-10,np.inf)
+
+		aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(S_samples_vec_local*self.prior_var_factor,(-1)))
+		# aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
+		if tf.math.reduce_any(tf.math.is_inf(aux)):
+			print("@get_Sigma_weights_inv_times_noise_var:")
+			pdb.set_trace()
+		return aux
 
 	# def get_logdetSigma_weights(self):
 	# 	return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
@@ -128,6 +139,8 @@ class RRPRegularFourierFeatures(ReducedRankProcessBase):
 		assert cfg.hyperpars.prior_variance > 0
 		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
 		self.prior_var_factor = self.Dw / self.Zs * cfg.hyperpars.prior_variance
+
+		assert self.dim_out_ind == 0, "This model assumes a dim-dimensional input and a 1-dimensional output."
 
 
 	def get_features_mat(self,X):
