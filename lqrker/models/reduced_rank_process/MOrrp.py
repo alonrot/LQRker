@@ -73,6 +73,24 @@ class MultiObjectiveReducedRankProcess():
 
 		return tf.identity(X), tf.identity(Y) # Copy tensor
 
+	def get_log_noise_std_vec(self):
+		"""
+		NOTE: This assumes that the noise matrix is diagonal
+		"""
+		log_noise_std_vec = np.zeros(self.dim_out)
+		for ii in range(self.dim_out):
+			log_noise_std_vec[ii] = self.rrgpMO[ii].get_log_noise_std()
+		return log_noise_std_vec
+
+	def get_noise_var_vec(self):
+		"""
+		NOTE: This assumes that the noise matrix is diagonal
+		"""
+		noise_var_vec = np.zeros(self.dim_out)
+		for ii in range(self.dim_out):
+			noise_var_vec[ii] = self.rrgpMO[ii].get_noise_var()
+		return noise_var_vec
+
 	def predict_at_locations(self,xpred,from_prior=False):
 		"""
 
@@ -162,7 +180,7 @@ class MultiObjectiveReducedRankProcess():
 		for ii in range(self.dim_out):
 			self.rrgpMO[ii].train_model(verbosity)
 
-	def sample_state_space_from_prior_recursively(self,x0,Nsamples,u_traj,traj_length,sort=False,plotting=False):
+	def sample_state_space_from_prior_recursively(self,x0,Nsamples,Nrollouts,u_traj,traj_length,sort=False,plotting=False):
 		"""
 
 		Pass two initial latent values
@@ -252,8 +270,7 @@ class MultiObjectiveReducedRankProcess():
 		# xsamples[0,...] = np.vstack([x0]*Nsamples)
 
 		assert Nsamples == 1, "We need one sample per roll-out"
-		Nrollouts = 15 # Now, each roll-out constitutes a different sample
-		xsamples = np.zeros((Nrollouts,traj_length,self.dim_out),dtype=np.float32)
+		xsamples = np.zeros((Nrollouts,traj_length,self.dim_out),dtype=np.float32) # Nrollouts: each roll-out constitutes a different sample
 
 		# pdb.set_trace()
 		# xsamples[0,...] = np.stack([x0]*Nsamples,axis=2)
@@ -353,4 +370,35 @@ class MultiObjectiveReducedRankProcess():
 		# self.update_model(X=Xtraining,Y=Ytraining)
 
 		return xsamples_X, xsamples_Y
+
+	def get_loss_gaussian_predictive(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,update_features=True):
+		"""
+
+		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1
+
+		TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
+		"""
+
+		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
+		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		if update_features:
+			self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+
+		log_noise_std_vec = self.get_log_noise_std_vec()
+		noise_var_vec = self.get_noise_var_vec()
+
+		# Assume for now a single trajectory as real data Xstate_pred, i.e., [Nrollouts=1,traj_length,self.dim_out]
+
+		x0 = Xstate_real[0,0:1,:]
+		x_traj_pred, y_traj_pred = self.sample_state_space_from_prior_recursively(x0,Nsamples,Nrollouts,u_traj_real,traj_length=-1,sort=False,plotting=False) # [Nrollouts,traj_length-1,self.dim_out]
+
+		error = (y_traj_pred - Xstate_real[:,1::,:]) / np.reshape(np.sqrt(noise_var_vec),(1,1,self.dim_out)) # [Nrollouts,traj_length-1,self.dim_out]
+		term_data_fit = -0.5*np.sum(np.linalg.norm(error,ord=2,axis=2)**2)
+		term_model_complexity = -np.sum(log_noise_std_vec)*y_traj_pred.shape[0]*y_traj_pred.shape[1]
+		# term_const = -self.dim_out*math.pi*y_traj_pred.shape[0]*y_traj_pred.shape[1]
+
+		# loss_val = term_data_fit + term_model_complexity + term_const
+		loss_val = -(term_data_fit + term_model_complexity)
+
+		return loss_val, x_traj_pred, y_traj_pred
 

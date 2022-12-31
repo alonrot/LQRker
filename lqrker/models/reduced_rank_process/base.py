@@ -340,8 +340,6 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		# loss_val = 
 
-
-
 		return loss_val
 
 	def get_MLII_loss(self,which_process):
