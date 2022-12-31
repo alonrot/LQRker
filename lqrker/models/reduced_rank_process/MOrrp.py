@@ -402,3 +402,52 @@ class MultiObjectiveReducedRankProcess():
 
 		return loss_val, x_traj_pred, y_traj_pred
 
+	def train_MOrrp_predictive(self,verbosity=False):
+		"""
+
+		"""
+
+		raise NotImplementedError("Coding this up...")
+
+		logger.info("Training the model...")
+
+		# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Adam
+		optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
+
+		epoch = 0
+		done = False
+		loss_value_curr = float("Inf")
+		trainable_weights_best = self.get_weights()
+		while epoch < self.epochs and not done:
+
+			for dd in range(self.dim_out):
+				# DO this....
+				with tf.GradientTape() as tape:
+					loss_value = self.get_MLII_loss(which_process=self.which_process)
+
+			logger.info("Training the model... 1")
+			grads = tape.gradient(loss_value, self.trainable_weights)
+			logger.info("Training the model... 2")
+			optimizer.apply_gradients(zip(grads, self.trainable_weights))
+			logger.info("Training the model... 3")
+
+			if (epoch+1) % 10 == 0:
+				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.epochs, float(loss_value)))
+
+			if loss_value <= self.stop_loss_val:
+				done = True
+			
+			if loss_value < loss_value_curr:
+				trainable_weights_best = self.get_weights()
+				loss_value_curr = loss_value
+			
+			epoch += 1
+			logger.info("Training the model... 4")
+
+		if done == True:
+			logger.info("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
+
+		self.set_weights(weights=trainable_weights_best)
+
+		if verbosity:
+			self.print_weights_info()
