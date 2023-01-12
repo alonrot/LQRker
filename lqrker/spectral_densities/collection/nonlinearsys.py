@@ -12,7 +12,8 @@ logger = get_logger(__name__)
 
 class NonLinearSystemSpectralDensity(SpectralDensityBase):
 # class NonLinearSystemSpectralDensity(tfp.distributions.distribution.AutoCompositeTensorDistribution,SpectralDensityBase):
-
+	
+	# @tf.function
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int):
 		super().__init__(cfg_sampler,dim)
 
@@ -38,6 +39,7 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		# self.factor_Fourier = 1./(2.*math.pi)**(self.dim/2) # Unitary convention; would need to multiply the rpior mean by this factor as well
 		self.factor_Fourier = 1./(2.*math.pi)**(self.dim) # Non-unitary convention: since we only care about S(w) in relation to the final f(x), we multiply the two terms directly here
 
+	# @tf.function
 	def unnormalized_density(self,omega_in,log=False):
 		"""
 		
@@ -54,6 +56,7 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 
 		return Sw_vec, phiw_vec
 
+	# @tf.function
 	def _MVFourierTransform(self,omega_vec):
 		"""
 
@@ -272,22 +275,27 @@ class VanDerPolSpectralDensity(NonLinearSystemSpectralDensity):
 
 class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 
+	# @tf.function
 	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int, use_nominal_model=True):
 		
 		# assert dim == 2
 		self.use_nominal_model = use_nominal_model
 		super().__init__(cfg,cfg_sampler,dim)
 
+	# @tf.function
 	def _nonlinear_system_fun(self,x):
 		"""
 		x: [Npoints,self.dim]
 		"""
 
 		# return self._controlled_dubinscar_dynamics(x=x[:,0:1],y=x[:,1:2],th=x[:,2:3],u1=0.,u2=0.,use_nominal_model=self.use_nominal_model)
+
+		# By default, we assume that x concatenates state and control input, i.e., x = [xt,ut]
 		return self._controlled_dubinscar_dynamics(state_vec=x,control_vec="gather_data_policy",use_nominal_model=self.use_nominal_model)
 
 	@staticmethod
 	# def _controlled_dubinscar_dynamics(x, y, th, u1, u2, use_nominal_model=True):
+	# @tf.function
 	def _controlled_dubinscar_dynamics(state_vec, control_vec, use_nominal_model=True):
 		"""
 		state_vec: [Npoints,self.dim]
@@ -307,8 +315,8 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 				u2 = state_vec[:,4:5]
 			elif control_vec == "gather_data_policy" and state_vec.shape[1] == 3: # Infinitely growing spiral
 				print("@_controlled_dubinscar_dynamics: elif control_vec == 'gather_data_policy' and state_vec.shape[1] == 3: # Infinitely growing spiral")
-				u1 = 0.16
-				u2 = 0.11
+				u1 = 0.16 # Randomly chosen values, then fixed
+				u2 = 0.11 # Randomly chosen values, then fixed
 			elif control_vec == "gather_data_policy":
 				print("@_controlled_dubinscar_dynamics: elif control_vec == 'gather_data_policy':")
 				u1 = 0.0
@@ -328,38 +336,57 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 		# True parameters:
 		vel_lin_min = 0.0
 		vel_ang_min = 0.0
-		vel_ang_max = +np.inf
+		vel_ang_max = +float("Inf")
 
 		# Add dynamics imperfections:
 		if not use_nominal_model:
-			vel_lin_min = 0.15 # velocity commands have a slack value
-			vel_ang_min = 0.1 # velocity commands have a slack value
-			vel_ang_max = 2.*np.pi*0.65
 
-		# Control input:
-		u1_in = np.sign(u1)*np.clip(abs(u1),vel_lin_min,np.inf)
-		u2_in = np.sign(u2)*np.clip(abs(u2),vel_ang_min,vel_ang_max)
+			# which_alteration = "slacking"
+			which_alteration = "disturbance"
+			assert which_alteration in ["slacking","disturbance"]
+
+			# Change model slacking the input
+			if which_alteration == "slacking":
+				vel_lin_min = 1.5
+				vel_ang_min = 0.1
+				vel_ang_max = 0.5
+				u1_in = tf.math.sign(u1)*tf.clip_by_value(t=tf.math.abs(u1),clip_value_min=vel_lin_min,clip_value_max=float("Inf"))
+				u2_in = tf.math.sign(u2)*tf.clip_by_value(t=tf.math.abs(u2),clip_value_min=vel_ang_min,clip_value_max=vel_ang_max)
+
+			# Change the model adding a constant disturbance:
+			if which_alteration == "disturbance":
+				u1_in = u1 - 2.0
+				# u2_in = u2 - 1.0
+				u2_in = u2
+		else:
+			u1_in = u1
+			u2_in = u2
+
 
 		# Integrate dynamics:
-		x_next = deltaT*u1_in*np.cos(th) + x
-		y_next = deltaT*u1_in*np.sin(th) + y
+		x_next = deltaT*u1_in*tf.math.cos(th) + x
+		y_next = deltaT*u1_in*tf.math.sin(th) + y
 		th_next = deltaT*u2_in + th
 
-		if np.any(np.isinf(x_next)):
+		if tf.math.reduce_any(tf.math.is_inf(x_next)):
+		# if np.any(np.isinf(x_next)):
 			print("x_next is inf")
 			pdb.set_trace()
 
-		if np.any(np.isinf(y_next)):
+		if tf.math.reduce_any(tf.math.is_inf(y_next)):
+		# if np.any(np.isinf(y_next)):
 			print("x_next is inf")
 			pdb.set_trace()
 
-		if np.any(np.isinf(th_next)):
+		if tf.math.reduce_any(tf.math.is_inf(th_next)):
+		# if np.any(np.isinf(th_next)):
 			print("x_next is inf")
 			pdb.set_trace()
 
 		xyth_next = tf.concat([x_next,y_next,th_next],axis=1)
 
-		if np.all(xyth_next == 0.0):
+		if tf.math.reduce_all(xyth_next == 0.0):
+		# if np.all(xyth_next == 0.0):
 			print("xyth_next is all zeroes")
 			pdb.set_trace()
 

@@ -3,12 +3,14 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import math
 import pdb
-import numpy as np
+# import numpy as np
 
 from lqrker.models import ReducedRankProcessBase
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
+
+# sess = tf.compat.v1.Session()
 
 
 class RRPLinearFeatures(ReducedRankProcessBase):
@@ -16,13 +18,13 @@ class RRPLinearFeatures(ReducedRankProcessBase):
 
 	"""
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0):
 
-		super().__init__(dim,cfg,spectral_density,dim_out_int)
+		super().__init__(dim,cfg,spectral_density,dim_out_ind)
 
 		# self.Nfeat = self.W_samples.shape[0]
-		assert cfg.hyperpars.prior_variance > 0
-		self.prior_var = cfg.hyperpars.prior_variance
+		# assert cfg.hyperpars.prior_variance > 0
+		# self.prior_var = cfg.hyperpars.prior_variance
 
 	def get_features_mat(self,X):
 		"""
@@ -36,10 +38,12 @@ class RRPLinearFeatures(ReducedRankProcessBase):
 		return tf.zeros((self.W_samples.shape[0],1)) # [Npoints,1]
 
 	def get_cholesky_of_cov_of_prior_beta(self):
-		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var,(-1)))) # T-Student's process, function prediction f(x)
+		prior_var_factor = self.get_prior_variance()
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var,(-1)))
+		prior_var_factor = self.get_prior_variance()
+		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*prior_var_factor,(-1)))
 
 class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 	"""
@@ -56,15 +60,17 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
 	"""
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
+	# @tf.function
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0):
 
-		super().__init__(dim,cfg,spectral_density,dim_out_int)
+		super().__init__(dim,cfg,spectral_density,dim_out_ind)
 
 		# self.Nfeat = self.W_samples.shape[0]
-		assert cfg.hyperpars.prior_variance > 0
 		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
-		self.prior_var_factor = self.Dw / self.Zs * cfg.hyperpars.prior_variance
 
+		self.dbg_flag = False
+
+	# @tf.function
 	def get_features_mat(self,X):
 		"""
 
@@ -73,30 +79,47 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 		"""
 
 		# pdb.set_trace()
-		try:
-			WX = X @ tf.transpose(self.W_samples) # [Npoints, Nfeat]
-		except:
-			pdb.set_trace()
-		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec)) # [Npoints, Nfeat]
+		WX = X @ tf.transpose(self.W_samples) # [Npoints, Nfeat]
+		dbg_phase = 0.0
+		if self.dbg_flag:
+			dbg_phase = math.pi/32.0
+		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec) + dbg_phase) # [Npoints, Nfeat]
 
 		return harmonics_vec
 
+	# @tf.function
 	def get_prior_mean(self):
-		return self.Dw*self.S_samples_vec # [Npoints,1]
+		prior_mean_factor = self.get_prior_mean_factor()
+		return self.Dw*self.S_samples_vec*prior_mean_factor # [Npoints,1]
 
+	# @tf.function
 	def get_cholesky_of_cov_of_prior_beta(self):
-		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
-		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
+		prior_var_factor = self.Dw / self.Zs * self.get_prior_variance()
+		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
 		
+	# @tf.function
 	def get_Sigma_weights_inv_times_noise_var(self):
 
-		S_samples_vec_local = np.clip(self.S_samples_vec,1e-10,np.inf)
+		# S_samples_vec_local = np.clip(self.S_samples_vec,1e-10,np.inf)
+		S_samples_vec_local = tf.clip_by_value(t=self.S_samples_vec,clip_value_min=1e-10,clip_value_max=float("Inf"))
 
-		aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(S_samples_vec_local*self.prior_var_factor,(-1)))
-		# aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
+		prior_var_factor = self.Dw / self.Zs * self.get_prior_variance()
+		aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(S_samples_vec_local*prior_var_factor,[-1]))
+		# aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*prior_var_factor,(-1))) # Doesn't work when building a graph
 		if tf.math.reduce_any(tf.math.is_inf(aux)):
-			print("@get_Sigma_weights_inv_times_noise_var:")
-			pdb.set_trace()
+			print(aux)
+			print(self.get_noise_var())
+			print(S_samples_vec_local)
+			print(prior_var_factor)
+			tf.autograph.trace(aux)
+			tf.debugging.check_numerics(aux, message='aux has infs or nans')
+
+			# print(sess.run(c)) # https://www.activestate.com/resources/quick-reads/how-to-debug-tensorflow/
+
+			# pdb.set_trace()
+			# raise NotImplementedError("@RRPDiscreteCosineFeatures.get_Sigma_weights_inv_times_noise_var()")
+
 		return aux
 
 	# def get_logdetSigma_weights(self):
@@ -132,13 +155,13 @@ class RRPRegularFourierFeatures(ReducedRankProcessBase):
 	5) How can we infer the dominant frquencies from data? Can we compute S(w|Data) ?
 	"""
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0):
 
-		super().__init__(dim,cfg,spectral_density,dim_out_int)
+		super().__init__(dim,cfg,spectral_density,dim_out_ind)
 
-		assert cfg.hyperpars.prior_variance > 0
 		self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
-		self.prior_var_factor = self.Dw / self.Zs * cfg.hyperpars.prior_variance
+		# assert cfg.hyperpars.prior_variance > 0
+		# self.prior_var_factor = self.Dw / self.Zs * cfg.hyperpars.prior_variance
 
 		assert self.dim_out_ind == 0, "This model assumes a dim-dimensional input and a 1-dimensional output."
 
@@ -161,24 +184,26 @@ class RRPRegularFourierFeatures(ReducedRankProcessBase):
 		return tf.zeros((self.W_samples.shape[0],1))
 
 	def get_cholesky_of_cov_of_prior_beta(self):
-		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
-		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
+		prior_var_factor = self.Dw / self.Zs * self.get_prior_variance()
+		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
+		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*self.prior_var_factor,(-1)))
+		prior_var_factor = self.Dw / self.Zs * self.get_prior_variance()
+		return self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*prior_var_factor,(-1)))
 
 	# def get_logdetSigma_weights(self):
-	# 	return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*self.prior_var_factor))
+	# 	return tf.math.reduce_sum(tf.math.log(self.S_samples_vec*prior_var_factor))
 
 
 class RRPRandomFourierFeatures(ReducedRankProcessBase):
 
-	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_int=0):
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0):
 
-		super().__init__(dim,cfg,spectral_density,dim_out_int)
+		super().__init__(dim,cfg,spectral_density,dim_out_ind)
 
-		assert cfg.prior_var_factor > 0 and cfg.prior_var_factor <= 1.0
-		self.prior_var = cfg.hyperpars.prior_variance # Here, the prior variance is user-specified. In RRPRegularFourierFeatures is given by the spectral density, so therein we use the factor self.prior_var_factor; here it's not necessary
+		# assert cfg.prior_var_factor > 0 and cfg.prior_var_factor <= 1.0
+		# NOTE: Here, the prior variance is user-specified. In RRPRegularFourierFeatures is given by the spectral density, so therein we use the factor self.prior_var_factor; here it's not necessary
 		self.Nfeat = self.W_samples.shape[0]
 
 	def get_features_mat(self,X):
@@ -198,11 +223,12 @@ class RRPRandomFourierFeatures(ReducedRankProcessBase):
 		return tf.zeros((self.W_samples.shape[0],1))
 
 	def get_cholesky_of_cov_of_prior_beta(self):
-		# return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat + self.get_noise_var())) # T-Student's process, observation prediction y
-		return tf.eye(self.Nfeat)*tf.math.sqrt((self.prior_var/self.Nfeat)) # T-Student's process, function f(x) prediction
+		# return tf.eye(self.Nfeat)*tf.math.sqrt((self.get_prior_variance()/self.Nfeat + self.get_noise_var())) # T-Student's process, observation prediction y
+
+		return tf.eye(self.Nfeat)*tf.math.sqrt((self.get_prior_variance()/self.Nfeat)) # T-Student's process, function f(x) prediction
 
 	def get_Sigma_weights_inv_times_noise_var(self):
-		return self.get_noise_var() * (self.Nfeat/self.prior_var) * tf.eye(self.Nfeat)
+		return self.get_noise_var() * (self.Nfeat/self.get_prior_variance()) * tf.eye(self.Nfeat)
 
 	# def get_logdetSigma_weights(self):
 	# 	return self.Nfeat*tf.math.log(self.prior_var)

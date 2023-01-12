@@ -57,6 +57,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 	"""
 	# def __init__(self, dim, Nfeat, sigma_n, nu, **kwargs):
+	# @tf.function
 	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0, **kwargs):
 		"""
 		
@@ -76,12 +77,24 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			self.log_nu = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(nu_init-2.0)), trainable=True,name="log_nu")
 
 		self.dim = dim
-		
+
+		# This model assumes a dim-dimensional input and a scalar output.
+		# We need to select the output we care about for the spectral density points:
+		# self.select_output_dimension(dim_out_ind)
+		assert dim_out_ind >= 0 and dim_out_ind <= self.dim
+		self.dim_out_ind = dim_out_ind
+
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std")
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
 		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
+
+		assert cfg.hyperpars.prior_variance > 0
+		self.log_prior_variance = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_variance)), trainable=True,name="log_prior_variance_dim{0:d}".format(self.dim_out_ind))
+
+		self.log_prior_mean_factor = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_mean_factor)), trainable=True,name="log_prior_mean_factor_dim{0:d}".format(self.dim_out_ind))
+
 
 		# Learning parameters:
 		self.learning_rate = cfg.learning.learning_rate
@@ -107,10 +120,6 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# Spectral density to be used:
 		self.spectral_density = spectral_density
 
-		# This model assumes a dim-dimensional input and a scalar output.
-		# We need to select the output we care about for the spectral density points:
-		self.select_output_dimension(dim_out_ind)
-		
 		self.S_samples_vec = self.spectral_density.Sw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
 		self.phi_samples_vec = self.spectral_density.phiw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
 		self.W_samples = self.spectral_density.W_points # [Npoints,self.dim]
@@ -122,6 +131,14 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		if self.which_process == "student-t":
 			nu = self.get_nu()
 			self.Zs = self.Zs * (nu/(nu - 2.))
+
+
+		# Convert to tensors:
+		self.S_samples_vec = tf.convert_to_tensor(self.S_samples_vec,tf.float32)
+		self.phi_samples_vec = tf.convert_to_tensor(self.phi_samples_vec,tf.float32)
+		self.W_samples = tf.convert_to_tensor(self.W_samples,tf.float32)
+		self.Zs = tf.convert_to_tensor(self.Zs,tf.float32)
+
 
 		# ----------------------------------------------------------------------------------------------------------
 		# ----------------------------------------------------------------------------------------------------------
@@ -147,6 +164,14 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	def get_cholesky_of_cov_of_prior_beta(self):
 		raise NotImplementedError
 
+	@abstractmethod
+	def get_prior_mean(self):
+		"""
+		We use [1, Sec 9.3.3] to compute the posterior of a Bayesian linear model with non-zero prior mean
+
+		[1] Deisenroth, M.P., Faisal, A.A. and Ong, C.S., 2020. Mathematics for machine learning. Cambridge University Press.
+		"""
+		raise NotImplementedError
 
 	def get_logdetSigma_weights(self):
 		raise NotImplementedError
@@ -155,10 +180,11 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		raise NotImplementedError
 
 
-	def select_output_dimension(self,dim_out_ind):
-		assert dim_out_ind >= 0 and dim_out_ind <= self.dim
-		self.dim_out_ind = dim_out_ind
+	# def select_output_dimension(self,dim_out_ind):
+	# 	assert dim_out_ind >= 0 and dim_out_ind <= self.dim
+	# 	self.dim_out_ind = dim_out_ind
 
+	# @tf.function
 	def get_noise_var(self):
 		"""
 
@@ -167,16 +193,28 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 		return tf.exp(2.0*tf.squeeze(self.log_noise_std))
 
+	# @tf.function
 	def get_log_noise_std(self):
 		return self.log_noise_std
 
+	@tf.function
 	# def get_L(self):
 	# 	return tf.exp(self.log_L)
 
+	# @tf.function
+	def get_prior_variance(self):
+		return tf.exp(self.log_prior_variance)
+
+	# @tf.function
+	def get_prior_mean_factor(self):
+		return tf.exp(self.log_prior_mean_factor)
+
+	# @tf.function
 	def get_nu(self):
 		assert self.which_process == "student-t"
 		return tf.exp(tf.squeeze(self.log_nu)) + 2.0
 
+	# @tf.function
 	def print_weights_info(self):
 		
 		logger.info("Trained weights:")
@@ -189,6 +227,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 			logger.info(str_info)
 
+	# @tf.function
 	def get_prior_cov_inverse(self):
 		"""
 
@@ -203,6 +242,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		Kinv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) ) # [Npoints,Npoints]
 		return Kinv
 
+	# @tf.function
 	def get_log_det_prior_cov_inverse(self,Kinv=None):
 		"""
 
@@ -220,6 +260,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return log_det_Kinv_no_noise - 2.*Kinv_no_noise.shape[0]*self.get_log_noise_std()
 
+	# @tf.function
 	def get_MLII_loss_student_t(self):
 		"""
 
@@ -259,6 +300,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return loss_val
 
+	# @tf.function
 	def get_MLII_loss_gaussian(self):
 		"""
 
@@ -300,6 +342,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return loss_val
 
+	# @tf.function
 	def get_MLII_loss_gaussian_predictive(self,xpred):
 		"""
 
@@ -314,6 +357,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
 		"""
+
+		raise NotImplementedError
 
 		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
 		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
@@ -342,12 +387,14 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return loss_val
 
+	# @tf.function
 	def get_MLII_loss(self,which_process):
 		if which_process == "gaussian":
 			return self.get_MLII_loss_gaussian()
 		elif which_process == "student-t":
 			return self.get_MLII_loss_student_t()
 
+	# @tf.function
 	def train_model(self,verbosity=False):
 		"""
 		TODO: Speed up the training by:
@@ -359,6 +406,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# https://stackoverflow.com/a/61349421
 		tf.function(self._train_model(verbosity))
 
+	# @tf.function
 	def _train_model(self,verbosity=False):
 		"""
 
@@ -405,6 +453,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		if verbosity:
 			self.print_weights_info()
 
+	# @tf.function
 	def update_model(self,X,Y):
 
 		logger.info("Updating model for output dimension {0:d} / {1:d}".format(self.dim_out_ind+1,self.dim))
@@ -415,15 +464,19 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		self.prior_beta_already_computed = False
 		self.predictive_beta_already_computed = False
 
+	# @tf.function
 	def _update_dataset(self,X,Y):
 		self.X = X
 
-		if Y.ndim == 1:
+		if len(Y.shape) == 1:
+			assert Y.shape[0] > 0
 			self.Y = tf.reshape(Y,(-1,1))
-		else:
-			assert Y.ndim == 2
+		elif len(Y.shape) == 2:
 			self.Y = Y
+		else:
+			raise ValueError("Y size is not correct")
 
+	# @tf.function
 	def _update_features(self,verbosity=True):
 		"""
 
@@ -442,10 +495,11 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		BB_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
 		# pdb.set_trace()
 
-		if np.any(np.isnan(BB_sym)):
-			logger.info("nans in BB_sym"); pdb.set_trace()
-		if np.any(np.isinf(BB_sym)):
+		if tf.math.reduce_any(tf.math.is_inf(BB_sym)):
 			logger.info("infs in BB_sym"); pdb.set_trace()
+
+		if tf.math.reduce_any(tf.math.is_nan(BB_sym)):
+			logger.info("nans in BB_sym"); pdb.set_trace()
 
 		if verbosity: logger.info("    Computing cholesky decomposition of {0:d} x {1:d} matrix ...".format(PhiXTPhiX.shape[0],PhiXTPhiX.shape[1]))
 
@@ -466,9 +520,12 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# # AA_sym_inv = CommonUtils.fix_eigvals(AA_sym_inv)
 		# self.Lchol_of_inv = tf.linalg.cholesky(AA_sym_inv)
 
+	# @tf.function
 	def get_predictive_beta_distribution(self):
 		"""
-	
+		We use [1, Sec 9.3.3] to compute the posterior of a Bayesian linear model with non-zero prior mean
+
+		[1] Deisenroth, M.P., Faisal, A.A. and Ong, C.S., 2020. Mathematics for machine learning. Cambridge University Press.
 		"""
 
 		if self.predictive_beta_already_computed:
@@ -519,6 +576,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return mean_beta, cov_beta_chol
 
+	# @tf.function
 	def get_prior_beta_distribution(self):
 		"""
 
@@ -539,7 +597,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			fac_cov = 1.0
 
 		if self.prior_beta_already_computed:
-			logger.info("prior_beta_distribution doesn't need to be recomputed because the dataset was never updated")
+			# logger.info("prior_beta_distribution doesn't need to be recomputed because the dataset was never updated")
 			return self.mean_beta_prior, self.chol_cov_beta_prior
 
 		# Get prior cov:
@@ -554,6 +612,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return mean_beta_prior, chol_cov_beta_prior
 
+	# @tf.function
 	def predict_beta(self,from_prior=False):
 
 		if self.X is None and self.Y is None or from_prior:
@@ -563,6 +622,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return mean_beta, cov_beta_chol
 
+	# @tf.function
 	def predict_at_locations(self,xpred,from_prior=False):
 		"""
 
@@ -589,6 +649,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return tf.squeeze(mean_pred), cov_pred
 
+	# @tf.function
 	def get_sample_path_callable(self,Nsamples,from_prior=False):
 
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
@@ -597,6 +658,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
 		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0 # [Nfeat,1] + [Nfeat,Nfeat] @ [Nfeat,Nsamples]
 
+		# @tf.function
 		def nonlinfun_sampled_callable(x):
 			"""
 			x: [Npoints, self.dim_in]
@@ -605,6 +667,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return nonlinfun_sampled_callable
 
+	# @tf.function
 	def sample_path_from_predictive(self,xpred,Nsamples,from_prior=False):
 		"""
 
@@ -618,6 +681,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return sample_xpred
 
+	# @tf.function
 	def sample_state_space_from_prior_recursively(self,x0,x1,traj_length,sort=False,plotting=False):
 		"""
 
@@ -627,6 +691,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		The GP won't be training during sampling, i.e., we won't call self.train_model()
 		"""
+
+		raise NotImplementedError("This function is deprecated; check sample_state_space_from_prior_recursively() @ MOrrp.py ")
 
 		xmin = -6.
 		xmax = +3.
@@ -703,6 +769,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		return xsamples_X, xsamples_Y
 
+	# @tf.function
 	def get_sample_multivariate_standard_prior(self,Npred,Nsamples):
 
 		if self.which_process == "student-t":
@@ -710,6 +777,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		elif self.which_process == "gaussian":
 			return self.get_sample_mvn0(Npred,Nsamples)
 
+	# @tf.function
 	def get_sample_mvn0(self,Npred,Nsamples):
 		"""
 		Sample a path from MVN(0,I)
@@ -719,6 +787,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		samples = tf.random.normal(shape=(Npred,Nsamples),mean=0.0,stddev=1.0) # [Npred,Nsamples]
 		return samples
 
+	# @tf.function
 	def get_sample_mvt0(self,Npred,Nsamples):
 		"""
 		Sample a path from MVT(nu,0,I)

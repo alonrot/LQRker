@@ -16,6 +16,7 @@ class SpectralDensityBase(ABC):
 	Base class
 	"""
 
+	# @tf.function
 	def __init__(self,cfg_samplerHMC,dim):
 
 		self.num_burnin_steps = cfg_samplerHMC.num_burnin_steps
@@ -44,6 +45,7 @@ class SpectralDensityBase(ABC):
 	def update_pars(self,args):
 		raise NotImplementedError
 
+	# @tf.function
 	def initialize_HMCsampler(self,log_likelihood_fn):
 		"""
 
@@ -87,6 +89,7 @@ class SpectralDensityBase(ABC):
 
 		return adaptive_hmc
 
+	# @tf.function
 	def get_samples_HMC(self,log_likelihood_fn,Nsamples=None):
 		"""
 
@@ -116,6 +119,7 @@ class SpectralDensityBase(ABC):
 
 		return samples
 
+	# @tf.function
 	def get_normalization_constant_numerical(self,omega_vec):
 		"""
 
@@ -130,6 +134,7 @@ class SpectralDensityBase(ABC):
 
 		return const
 
+	# @tf.function
 	def get_Wsamples_from_Sw(self,Nsamples=None):
 
 		# Get samples:
@@ -146,6 +151,7 @@ class SpectralDensityBase(ABC):
 		return Sw_vec_nor, phiw_vec, W_samples_vec
 
 
+	# @tf.function
 	def get_Wpoints_discrete(self,L,Ndiv,normalize_density_numerically=False,reshape_for_plotting=False):
 
 		assert Ndiv % 2 != 0 and Ndiv > 2, "Ndiv must be an odd positive integer"
@@ -175,6 +181,7 @@ class SpectralDensityBase(ABC):
 		return Sw_vec, phiw_vec, omegapred
 
 
+	# @tf.function
 	def get_Wpoints_on_regular_grid(self,omega_min=-5.,omega_max=+5.,Ndiv=51,normalize_density_numerically=False,reshape_for_plotting=False):
 		"""
 
@@ -209,16 +216,20 @@ class SpectralDensityBase(ABC):
 
 		return Sw_vec, phiw_vec, omegapred
 
+	# @tf.function
 	def update_Wsamples_uniform(self,omega_min,omega_max,Nsamples):
 		self.W_points = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
 		self.Sw_points, self.phiw_points = self.unnormalized_density(self.W_points)
 
+	# @tf.function
 	def update_Wsamples(self,Nsamples=None):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wsamples_from_Sw(Nsamples)
 
+	# @tf.function
 	def update_Wpoints_regular(self,omega_min=-5.,omega_max=+5.,Ndiv=51,normalize_density_numerically=False,reshape_for_plotting=False):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_on_regular_grid(omega_min,omega_max,Ndiv,normalize_density_numerically,reshape_for_plotting)
 
+	# @tf.function
 	def update_Wpoints_discrete(self,L,Ndiv,normalize_density_numerically=False,reshape_for_plotting=False):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_discrete(L,Ndiv,normalize_density_numerically,reshape_for_plotting)
 
