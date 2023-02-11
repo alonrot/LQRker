@@ -463,6 +463,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		self.prior_beta_already_computed = False
 		self.predictive_beta_already_computed = False
+		# self.acquired_sample_mv0_for_sample_path_callable = False
 
 	# @tf.function
 	def _update_dataset(self,X,Y):
@@ -652,17 +653,46 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	# @tf.function
 	def get_sample_path_callable(self,Nsamples,from_prior=False):
 
-		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
+		# logger.info("Predicting; from_prior = {0:s} || self.dim_out_ind = {1:d} ...".format(str(from_prior),self.dim_out_ind))
+		mean_beta, cov_beta_chol = self.predict_beta(from_prior) # Computationally expensive call
 
+		# logger.info("Sampling from standard MVN || self.dim_out_ind = {0:d} ...".format(self.dim_out_ind))
+		
+		# """
+		# Using self.acquired_sample_mv0_for_sample_path_callable
+		# """
+		# if self.acquired_sample_mv0_for_sample_path_callable:
+		# 	sample_mv0 = self.sample_mv0_for_sample_path_callable
+		# else:
+		# 	Nfeat = cov_beta_chol.shape[0]
+		# 	sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
+		# 	self.sample_mv0_for_sample_path_callable = sample_mv0
+		# 	# self.acquired_sample_mv0_for_sample_path_callable = True
+		# 	self.acquired_sample_mv0_for_sample_path_callable = False # We purposedly want this to be False because we're setting Nsamples=1 and calling this function only ONCE every rollout. However, refactoring all this would be good
+		
+
+		"""
+		Not using self.acquired_sample_mv0_for_sample_path_callable
+		"""
 		Nfeat = cov_beta_chol.shape[0]
 		sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
+
 		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0 # [Nfeat,1] + [Nfeat,Nfeat] @ [Nfeat,Nsamples]
+
+		# logger.info("self.dim_out_ind = {0:d} ...".format(self.dim_out_ind))
+		# print("aux: ",aux[0:5,0:5])
+		# print("mean_beta: ",mean_beta[0:5,0:5])
+		# print("cov_beta_chol: ",cov_beta_chol[0:5,0:5])
 
 		# @tf.function
 		def nonlinfun_sampled_callable(x):
 			"""
 			x: [Npoints, self.dim_in]
 			"""
+
+			# logger.info("self.dim_out_ind = {0:d} ...".format(self.dim_out_ind))
+			# print("aux: ",aux[0:5,0:5])
+
 			return self.get_features_mat(x) @ aux # [Npoints, Nfeat] @ [Nfeat,Nsamples] = [Npoints,Nsamples]
 
 		return nonlinfun_sampled_callable

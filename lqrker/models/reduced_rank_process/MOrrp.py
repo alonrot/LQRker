@@ -678,12 +678,13 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		if plotting_dict["plotting"]:
 			if plotting_dict["ref_xt_vec"] is not None:
-				hdl_splots_pred.plot(ref_xt_vec[:,0],ref_xt_vec[:,1],marker=".",linestyle="-",color="blue",lw=1.0,markersize=5,label=r"Reference",alpha=0.5)
+				hdl_splots_pred.plot(ref_xt_vec[:,0],ref_xt_vec[:,1],marker=".",linestyle="-",color="grey",lw=1.0,markersize=5,label=r"Reference",alpha=0.5)
 			if plotting_dict["z_vec"] is not None:
 				hdl_splots_pred.plot(z_vec[:,0],z_vec[:,1],marker=".",linestyle="-",color="lightblue",lw=1.0,markersize=5,label=r"Real traj - nominal dynamics",alpha=0.5)
 			if plotting_dict["z_vec_changed_dyn"] is not None:
-				hdl_splots_pred.plot(z_vec_changed_dyn[:,0],z_vec_changed_dyn[:,1],marker=".",linestyle="-",color="lightgreen",lw=1.0,markersize=5,label=r"Real traj - changed dynamics",alpha=0.5)
-			hdl_splots_pred.legend()
+				hdl_splots_pred.plot(z_vec_changed_dyn[:,0],z_vec_changed_dyn[:,1],marker=".",linestyle="-",color="mediumblue",lw=1.0,markersize=5,label=r"Real traj - changed dynamics",alpha=0.5)
+			if title_fig != "Predictions || Using prior, no training":
+				hdl_splots_pred.legend()
 			plt.show(block=block_plot)
 
 		# Return average:

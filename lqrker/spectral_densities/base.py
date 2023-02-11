@@ -178,6 +178,10 @@ class SpectralDensityBase(ABC):
 				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
 				phiw_vec = np.stack(phiw_vec_plotting) # [dim, Ndiv, Ndiv]
 
+		# pdb.set_trace()
+
+		# omegapred += 0.001*np.random.randn(*omegapred.shape)
+
 		return Sw_vec, phiw_vec, omegapred
 
 
@@ -216,10 +220,29 @@ class SpectralDensityBase(ABC):
 
 		return Sw_vec, phiw_vec, omegapred
 
+
+	def get_Wpoints_on_irregular_grid_uniformly_sampled(self,omega_min,omega_max,Nsamples,which_method="sobol"):
+
+		assert which_method in ["sobol","uniform"]
+
+		# Random grid using uniform/sobol randomization:
+		if which_method == "sobol":
+			omegapred = omega_min + (omega_max - omega_min)*tf.math.sobol_sample(dim=self.dim,num_results=(Nsamples),skip=10000)
+		elif which_method == "uniform":
+			omegapred = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
+
+		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
+
+		return Sw_vec, phiw_vec, omegapred
+
+	# # @tf.function
+	# def update_Wsamples_uniform(self,omega_min,omega_max,Nsamples):
+	# 	self.W_points = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
+	# 	self.Sw_points, self.phiw_points = self.unnormalized_density(self.W_points)
+
 	# @tf.function
 	def update_Wsamples_uniform(self,omega_min,omega_max,Nsamples):
-		self.W_points = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
-		self.Sw_points, self.phiw_points = self.unnormalized_density(self.W_points)
+		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_on_irregular_grid_uniformly_sampled(omega_min,omega_max,Nsamples)
 
 	# @tf.function
 	def update_Wsamples(self,Nsamples=None):

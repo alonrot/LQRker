@@ -307,6 +307,7 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 		y = state_vec[:,1:2]
 		th = state_vec[:,2:3]
 
+
 		# Control:
 		if isinstance(control_vec,str):
 			if control_vec == "gather_data_policy" and state_vec.shape[1] == 5:
@@ -354,10 +355,13 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 				u2_in = tf.math.sign(u2)*tf.clip_by_value(t=tf.math.abs(u2),clip_value_min=vel_ang_min,clip_value_max=vel_ang_max)
 
 			# Change the model adding a constant disturbance:
-			if which_alteration == "disturbance":
-				u1_in = u1 - 2.0
+			if which_alteration == "disturbance": # IMPORTANT: This needs to agree with get_sequence_of_feedback_gains_finite_horizon_LQR() @ test_dubin_car.py
+				u1_in = u1*2.0
+				# u1_in = u1/2.0
+				# u1_in = u1 - 0.5
 				# u2_in = u2 - 1.0
-				u2_in = u2
+				# u2_in = u2
+				u2_in = u2*3.0
 		else:
 			u1_in = u1
 			u2_in = u2
