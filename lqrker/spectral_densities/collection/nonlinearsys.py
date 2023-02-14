@@ -72,6 +72,9 @@ class NonLinearSystemSpectralDensity(SpectralDensityBase):
 		part_real = self.dX*self.factor_Fourier*(tf.math.cos(omega_times_X) @ self.fdata)
 		part_imag = self.dX*self.factor_Fourier*(tf.math.sin(omega_times_X) @ self.fdata)
 
+		self.part_real_dbg = part_real
+		self.part_imag_dbg = part_imag
+
 		# Modulus (spectral density):
 		Sw = tf.math.sqrt(part_real**2 + part_imag**2) # [Npoints,dim]
 

@@ -161,7 +161,19 @@ class SpectralDensityBase(ABC):
 
 		omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
 
+
+		# # DBG: fix the control part
+		# dbg_flag = False
+		# if dbg_flag:
+		# 	omegapred_aux = omegapred.numpy()
+		# 	omegapred_aux[:,3::] = 0.5
+		# 	omegapred = tf.convert_to_tensor(omegapred_aux,dtype=tf.float32)
+		# 	
+		# pdb.set_trace()
+		# DBG: play around with the omega ranges:
+		# fac = 5; L = 10.0; Ndiv = 3; j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim); j_indices = j_indices*fac; omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
 		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
+
 
 		if normalize_density_numerically:
 			raise NotImplementedError("Check for dim > 1")

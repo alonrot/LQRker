@@ -515,7 +515,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		return loss_val
 
 	# @tf.function
-	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False):
+	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0):
 		"""
 
 		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1
@@ -551,6 +551,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 		x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_tf(x0=x0_tf,Nsamples=1,Nrollouts=Nrollouts,u_traj=u_applied_tf,traj_length=-1,
 																				sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior)
+		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 
 		# return tf.math.reduce_sum(x_traj_pred**2), x_traj_pred, y_traj_pred
 
@@ -611,16 +613,37 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		# loss_per_dim = -(term_data_fit_vec + term_model_complexity_vec) # [self.dim_out,]
 
 
-		# Full loss:
+		# Loss || Averaged likelihood:
 		term_data_fit_vec = -0.5*tf.math.reduce_sum(error_weighted) # [,]
 		term_model_complexity_vec = -tf.math.reduce_sum(log_noise_std_vec)*y_traj_pred.shape[0]*y_traj_pred.shape[1] # [,]
-		loss_val = -(term_data_fit_vec + term_model_complexity_vec) # [,]
-		loss_val_avg = loss_val / (y_traj_pred.shape[0]*y_traj_pred.shape[1])
+		loss_log_evidence = -(term_data_fit_vec + term_model_complexity_vec) # [,]
+		loss_log_evidence_avg = loss_log_evidence / (y_traj_pred.shape[0]*y_traj_pred.shape[1])
 
-		# # Without dividing by the noise because TF fails ...
-		# loss_val = 0.5*tf.math.reduce_sum(error_weighted)
+		
 
-		return loss_val_avg, x_traj_pred, y_traj_pred
+		# Loss || Averaged entropy:
+		# We need the predictive variance for each state
+		# xpred: [Npoints,self.dim]
+		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		# Concatenate the predictions with their respective control input. We need them in order to compute the predictive variance:
+		u_applied_tf_tiled = tf.tile(u_applied_tf[0:-1],[x_traj_pred.shape[0],1])
+		x_traj_pred_tiled = tf.reshape(x_traj_pred,(-1,x_traj_pred.shape[2]))
+		x_traj_pred_with_u_applied = tf.concat((x_traj_pred_tiled,u_applied_tf_tiled),axis=1)
+		_, MO_std_pred = self.predict_at_locations(xpred=x_traj_pred_with_u_applied)
+		entropy_term = tf.reduce_mean(tf.math.log(MO_std_pred)) # Why isn't it -log()? Because the minus sign apepars only in the definition of entropy. After developing the terms, it remains +log(2*pi*e*var); this makes sense: the larger var is, the higher the log and the higher the entropy
+		loss_entropy = -entropy_term # We flip the sign becase in ELBO we are maximizing entropy_term
+
+		# Prior || Averaged minus cross entropy (penalize distance between consecutive points)
+		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		sigma_prior = 0.1
+		prior_regularizer_term = -((y_traj_pred - x_traj_pred) / sigma_prior)**2
+		loss_prior_regularizer_term = -tf.reduce_mean(prior_regularizer_term)
+
+		# Total loss:
+		loss_tot = loss_log_evidence_avg + scale_loss_entropy*loss_entropy + scale_prior_regularizer*loss_prior_regularizer_term
+
+		return loss_tot, x_traj_pred, y_traj_pred
 
 	# @tf.function
 	def get_negative_log_evidence_predictive_full_trajs_in_batch(self,update_features,plotting_dict,Nrollouts,from_prior=False):
@@ -661,8 +684,10 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			# x_traj_real_applied = np.reshape(x_traj_real,(1,self.Nhorizon,self.dim_out))
 			# x_traj_real_applied_tf = tf.convert_to_tensor(value=x_traj_real_applied,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 			# u_applied_tf = tf.convert_to_tensor(value=u_applied,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
-			loss_val, x_traj_pred, y_traj_pred = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
-																												Nrollouts=Nrollouts,str_progress_bar=str_progress_bar,from_prior=from_prior)
+			loss_val, x_traj_pred, _ = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
+																										Nrollouts=Nrollouts,str_progress_bar=str_progress_bar,from_prior=from_prior,
+																										scale_loss_entropy=self.scale_loss_entropy,
+																										scale_prior_regularizer=self.scale_prior_regularizer)
 			verbo_loss_val_vec[ii] = loss_val.numpy()
 
 			logger.info("    * Done! Cumulated average loss: {0:f}".format(float(np.mean(verbo_loss_val_vec[0:ii+1]))))
@@ -693,13 +718,18 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		return loss_val_avg
 
-	def update_dataset_predictive_loss(self,z_vec_real,u_traj_real,Nhorizon,learning_rate,epochs,stop_loss_val):
+	def update_dataset_predictive_loss(self,z_vec_real,u_traj_real,Nhorizon,learning_rate,epochs,stop_loss_val,scale_loss_entropy,scale_prior_regularizer,Nrollouts):
 		self.z_vec_real = z_vec_real
 		self.u_traj_real = u_traj_real
 		self.Nhorizon = Nhorizon
 		self.learning_rate = learning_rate
 		self.epochs = epochs
 		self.stop_loss_val = stop_loss_val
+		assert scale_loss_entropy > 0.0
+		self.scale_loss_entropy = scale_loss_entropy
+		assert scale_prior_regularizer > 0.0
+		self.scale_prior_regularizer = scale_prior_regularizer
+		self.Nrollouts = Nrollouts
 
 	def set_dbg_flag(self,flag=True):
 
@@ -742,7 +772,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			# with tf.GradientTape(persistent=True) as tape:
 			with tf.GradientTape() as tape:
 				# loss_val_per_dim = self.get_negative_log_evidence_predictive_full_trajs_in_batch(self.z_vec_real,self.u_traj_real,self.Nhorizon,update_features=True)
-				loss_value = self.get_negative_log_evidence_predictive_full_trajs_in_batch(update_features=epoch>0,plotting_dict=plotting_dict)
+				loss_value = self.get_negative_log_evidence_predictive_full_trajs_in_batch(update_features=epoch>0,plotting_dict=plotting_dict,Nrollouts=self.Nrollouts,from_prior=False)
 				# loss_value = self.get_loss_debug()
 				# loss_value = self.get_loss_debug_2(self.z_vec_real,self.u_traj_real,self.Nhorizon)
 
@@ -759,6 +789,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 			# pdb.set_trace()
 			grads = tape.gradient(loss_value, self.trainable_weights)
+			if tf.reduce_any([grads_el is None for grads_el in grads]):
+				grads = tf.constant([[0.0],[0.0],[0.0]],dtype=tf.float32)
 			optimizer.apply_gradients(zip(grads, self.trainable_weights))
 
 			# loss_value = tf.math.reduce_sum(loss_val_per_dim)

@@ -87,13 +87,15 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
+		# self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
+		self.log_noise_std = tf.math.log(cfg.hyperpars.noise_std_process)
 		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
 
 		assert cfg.hyperpars.prior_variance > 0
 		self.log_prior_variance = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_variance)), trainable=True,name="log_prior_variance_dim{0:d}".format(self.dim_out_ind))
 
-		self.log_prior_mean_factor = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_mean_factor)), trainable=True,name="log_prior_mean_factor_dim{0:d}".format(self.dim_out_ind))
+		# self.log_prior_mean_factor = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_mean_factor)), trainable=True,name="log_prior_mean_factor_dim{0:d}".format(self.dim_out_ind))
+		self.log_prior_mean_factor = tf.math.log(cfg.hyperpars.prior_mean_factor)
 
 
 		# Learning parameters:
@@ -197,7 +199,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	def get_log_noise_std(self):
 		return self.log_noise_std
 
-	@tf.function
+	# @tf.function
 	# def get_L(self):
 	# 	return tf.exp(self.log_L)
 
@@ -456,7 +458,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	# @tf.function
 	def update_model(self,X,Y):
 
-		logger.info("Updating model for output dimension {0:d} / {1:d}".format(self.dim_out_ind+1,self.dim))
+		logger.info("Updating model for output dimension {0:d} / {1:d}".format(self.dim_out_ind+1,self.spectral_density.Sw_points.shape[1]))
 
 		self._update_dataset(X,Y)
 		self._update_features()
