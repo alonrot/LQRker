@@ -18,14 +18,14 @@ class SpectralDensityBase(ABC):
 	"""
 
 	# @tf.function
-	def __init__(self,cfg_samplerHMC,dim):
+	def __init__(self,cfg_samplerHMC,dim_in):
 
 		self.num_burnin_steps = cfg_samplerHMC.num_burnin_steps
 		self.Nsamples_per_state0 = cfg_samplerHMC.Nsamples_per_state0
 		self.initial_states_sampling = eval(cfg_samplerHMC.initial_states_sampling)
 		self.step_size_hmc = cfg_samplerHMC.step_size_hmc
 		self.num_leapfrog_steps_hmc = cfg_samplerHMC.num_leapfrog_steps_hmc
-		self.dim = dim
+		self.dim_in = dim_in
 		assert self.Nsamples_per_state0 % 2 == 0, "Need an even number, for now"
 		self.adaptive_hmc = None
 		self.Sw_points, self.phiw_points, self.W_points = None, None, None
@@ -116,7 +116,7 @@ class SpectralDensityBase(ABC):
 			kernel=self.adaptive_hmc,
 			trace_fn=lambda _, pkr: pkr.inner_results.is_accepted)
 
-		samples = tf.reshape(samples,(-1,self.dim))
+		samples = tf.reshape(samples,(-1,self.dim_in))
 		samples = tf.concat([samples,-samples],axis=0)
 
 		return samples
@@ -133,7 +133,7 @@ class SpectralDensityBase(ABC):
 		Sw, _ = self.unnormalized_density(omega_vec)
 		# pdb.set_trace()
 		# raise ValueError("This is incorrect fo rirregular grids.... ")
-		Dw_prod = (omega_vec[1,-1] - omega_vec[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+		Dw_prod = (omega_vec[1,-1] - omega_vec[0,-1])**self.dim_in # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
 
 		try:
 			assert omega_vec[1,-1] - omega_vec[0,-1] == omega_vec[2,-1] - omega_vec[1,-1], "The grid might not be regular"
@@ -142,9 +142,9 @@ class SpectralDensityBase(ABC):
 		except:
 			# pdb.set_trace()
 			# raise NotImplementedError("This is harcoded, bad!!!!!")
-			Dw_prod = 0.04020**self.dim
+			Dw_prod = 0.04020**self.dim_in
 
-		const = tf.math.reduce_sum(Sw*Dw_prod,axis=0) # [self.dim,]
+		const = tf.math.reduce_sum(Sw*Dw_prod,axis=0) # [self.dim_in,]
 
 		return const
 
@@ -170,8 +170,8 @@ class SpectralDensityBase(ABC):
 
 		assert Ndiv % 2 != 0 and Ndiv > 2, "Ndiv must be an odd positive integer"
 
-		j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
-		# j_indices = CommonUtils.create_Ndim_grid(xmin=0,xmax=Ndiv-1,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
+		j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim_in) # [Ndiv**dim_x,dim_x]
+		# j_indices = CommonUtils.create_Ndim_grid(xmin=0,xmax=Ndiv-1,Ndiv=Ndiv,dim=self.dim_in) # [Ndiv**dim_x,dim_x]
 
 		omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
 
@@ -185,7 +185,7 @@ class SpectralDensityBase(ABC):
 		# 	
 		# pdb.set_trace()
 		# DBG: play around with the omega ranges:
-		# fac = 5; L = 10.0; Ndiv = 3; j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim); j_indices = j_indices*fac; omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
+		# fac = 5; L = 10.0; Ndiv = 3; j_indices = CommonUtils.create_Ndim_grid(xmin=-(Ndiv-1)//2,xmax=(Ndiv-1)//2,Ndiv=Ndiv,dim=self.dim_in); j_indices = j_indices*fac; omegapred = tf.cast((math.pi/L) * j_indices,dtype=tf.float32)
 		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
 
 
@@ -195,13 +195,13 @@ class SpectralDensityBase(ABC):
 			logger.info("normalization_constant_kernel: "+str(normalization_constant_kernel))
 			Sw_vec = Sw_vec / normalization_constant_kernel
 
-		if reshape_for_plotting and self.dim == 2:
+		if reshape_for_plotting and self.dim_in == 2:
 
-			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim_in) ]
 			Sw_vec = np.stack(S_vec_plotting) # [dim, Ndiv, Ndiv]
 
 			if np.any(phiw_vec != 0.0):
-				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim_in) ]
 				phiw_vec = np.stack(phiw_vec_plotting) # [dim, Ndiv, Ndiv]
 
 		# pdb.set_trace()
@@ -216,17 +216,17 @@ class SpectralDensityBase(ABC):
 		"""
 
 		return (with reshape_for_plotting=False):
-			Sw_vec: [Nfeatures,self.dim]
-			phiw_vec: [Nfeatures,self.dim]
-			omegapred: [Nfeatures,self.dim]
+			Sw_vec: [Nfeatures,self.dim_in]
+			phiw_vec: [Nfeatures,self.dim_in]
+			omegapred: [Nfeatures,self.dim_in]
 
-			Nfeatures = Ndiv**self.dim
+			Nfeatures = Ndiv**self.dim_in
 
 		"""
 
 		raise ValueError("[DBG]: try with omega_min=0, omega_max=10")
 
-		omegapred = CommonUtils.create_Ndim_grid(xmin=omega_min,xmax=omega_max,Ndiv=Ndiv,dim=self.dim) # [Ndiv**dim_x,dim_x]
+		omegapred = CommonUtils.create_Ndim_grid(xmin=omega_min,xmax=omega_max,Ndiv=Ndiv,dim=self.dim_in) # [Ndiv**dim_x,dim_x]
 		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
 
 		if normalize_density_numerically:
@@ -235,13 +235,13 @@ class SpectralDensityBase(ABC):
 			logger.info("normalization_constant_kernel: "+str(normalization_constant_kernel))
 			Sw_vec = Sw_vec / normalization_constant_kernel
 
-		if reshape_for_plotting and self.dim == 2:
+		if reshape_for_plotting and self.dim_in == 2:
 
-			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+			S_vec_plotting = [ np.reshape(Sw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim_in) ]
 			Sw_vec = np.stack(S_vec_plotting) # [dim, Ndiv, Ndiv]
 
 			if np.any(phiw_vec != 0.0):
-				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim) ]
+				phiw_vec_plotting = [ np.reshape(phiw_vec[:,ii],(Ndiv,Ndiv)) for ii in range(self.dim_in) ]
 				phiw_vec = np.stack(phiw_vec_plotting) # [dim, Ndiv, Ndiv]
 
 		return Sw_vec, phiw_vec, omegapred
@@ -253,9 +253,9 @@ class SpectralDensityBase(ABC):
 
 		# Random grid using uniform/sobol randomization:
 		if which_method == "sobol":
-			omegapred = omega_min + (omega_max - omega_min)*tf.math.sobol_sample(dim=self.dim,num_results=(Nsamples),skip=10000)
+			omegapred = omega_min + (omega_max - omega_min)*tf.math.sobol_sample(dim=self.dim_in,num_results=(Nsamples),skip=10000)
 		elif which_method == "uniform":
-			omegapred = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
+			omegapred = tf.random.uniform(shape=(Nsamples,self.dim_in),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
 
 		Sw_vec, phiw_vec = self.unnormalized_density(omegapred)
 
@@ -277,7 +277,7 @@ class SpectralDensityBase(ABC):
 
 	# # @tf.function
 	# def update_Wsamples_uniform(self,omega_min,omega_max,Nsamples):
-	# 	self.W_points = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
+	# 	self.W_points = tf.random.uniform(shape=(Nsamples,self.dim_in),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
 	# 	self.Sw_points, self.phiw_points = self.unnormalized_density(self.W_points)
 
 	# @tf.function
