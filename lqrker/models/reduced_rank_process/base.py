@@ -87,8 +87,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		# self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
-		self.log_noise_std = tf.math.log(cfg.hyperpars.noise_std_process)
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
+		# self.log_noise_std = tf.math.log(cfg.hyperpars.noise_std_process)
 		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
 
 		assert cfg.hyperpars.prior_variance > 0
@@ -116,34 +116,103 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		self.chol_cov_beta_prior = None
 
 		# ----------------------------------------------------------------------------------------------------------
-		# Parameters only relevant to child classes
+		# Parameters only relevant to child classes (old version)
+		# ----------------------------------------------------------------------------------------------------------
+
+
+
+		# # Spectral density to be used:
+		# self.spectral_density = spectral_density
+
+		# self.S_samples_vec = self.spectral_density.Sw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
+		# self.phi_samples_vec = self.spectral_density.phiw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
+		# self.W_samples = self.spectral_density.W_points # [Npoints,self.dim]
+		
+		# Zs = self.spectral_density.get_normalization_constant_numerical(self.W_samples) # [self.dim,]
+		# self.Zs = Zs[self.dim_out_ind:self.dim_out_ind+1]
+		
+		# # Process specific things:
+		# if self.which_process == "student-t":
+		# 	nu = self.get_nu()
+		# 	self.Zs = self.Zs * (nu/(nu - 2.))
+
+
+		# # Convert to tensors:
+		# self.S_samples_vec = tf.convert_to_tensor(self.S_samples_vec,tf.float32)
+		# self.phi_samples_vec = tf.convert_to_tensor(self.phi_samples_vec,tf.float32)
+		# self.W_samples = tf.convert_to_tensor(self.W_samples,tf.float32)
+		# self.Zs = tf.convert_to_tensor(self.Zs,tf.float32)
+
+
+		# ----------------------------------------------------------------------------------------------------------
+		# ----------------------------------------------------------------------------------------------------------
+
+
+
+		# ----------------------------------------------------------------------------------------------------------
+		# Parameters only relevant to child classes (new, after training omegas with NN)
 		# ----------------------------------------------------------------------------------------------------------
 
 		# Spectral density to be used:
-		self.spectral_density = spectral_density
+		
+		if spectral_density.Sw_points.ndim == 3:
+			assert spectral_density.phi_samples_vec.ndim == 3
+			assert spectral_density.W_samples.ndim == 3
+			assert spectral_density.dw_vec.ndim == 3
+			self.S_samples_vec = spectral_density.Sw_points[self.dim_out_ind,...] # [Nomegas,1]
+			self.phi_samples_vec = spectral_density.phiw_points[self.dim_out_ind,...] # [Nomegas,1]
+			self.W_samples = spectral_density.W_points[self.dim_out_ind,...] # [Nomegas,self.dim]
+			self.dw_vec = spectral_density.dw_vec[self.dim_out_ind,...] # [Nomegas,1]
+			# spectral_density.dX_vec[self.dim_out_ind,...] # [Nxpoints,1] # Not needed!
+		else:
+			self.S_samples_vec = spectral_density.Sw_points
+			self.phi_samples_vec = spectral_density.phiw_points
+			self.W_samples = spectral_density.W_points
+			self.dw_vec = spectral_density.dw_vec
 
-		self.S_samples_vec = self.spectral_density.Sw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
-		self.phi_samples_vec = self.spectral_density.phiw_points[:,self.dim_out_ind:self.dim_out_ind+1] # [Npoints,1]
-		self.W_samples = self.spectral_density.W_points # [Npoints,self.dim]
-		
-		Zs = self.spectral_density.get_normalization_constant_numerical(self.W_samples) # [self.dim,]
-		self.Zs = Zs[self.dim_out_ind:self.dim_out_ind+1]
-		
+		self.Zs = np.array([1.])
+
 		# Process specific things:
 		if self.which_process == "student-t":
 			nu = self.get_nu()
 			self.Zs = self.Zs * (nu/(nu - 2.))
 
-
 		# Convert to tensors:
 		self.S_samples_vec = tf.convert_to_tensor(self.S_samples_vec,tf.float32)
 		self.phi_samples_vec = tf.convert_to_tensor(self.phi_samples_vec,tf.float32)
 		self.W_samples = tf.convert_to_tensor(self.W_samples,tf.float32)
+		self.dw_vec = tf.convert_to_tensor(self.dw_vec,tf.float32)
 		self.Zs = tf.convert_to_tensor(self.Zs,tf.float32)
 
+		# # ----------------------------------------------------------------------------------------------------------
+		# # ----------------------------------------------------------------------------------------------------------
 
-		# ----------------------------------------------------------------------------------------------------------
-		# ----------------------------------------------------------------------------------------------------------
+		
+		# Make it stationary
+		# ==================
+		
+		make_it_stationary = False
+		if make_it_stationary:
+
+			Sw_vec_np = self.S_samples_vec.numpy()[0:-1]
+			ind_mid = Sw_vec_np.shape[0]//2
+			Sw_vec_np[ind_mid::,0] = Sw_vec_np[0:ind_mid,0]
+
+			if tf.math.reduce_all(self.phi_samples_vec == 0.0):
+				phiw_vec_np = np.zeros((self.S_samples_vec.shape[0]-1,1),dtype=np.float32)
+			else:
+				phiw_vec_np = self.phi_samples_vec.numpy()[0:-1]
+			phiw_vec_np[0:ind_mid,0] = 0.0
+			phiw_vec_np[ind_mid::,0] = -math.pi/2.
+
+			omegapred_np = self.W_samples.numpy()[0:-1]
+			omegapred_np[ind_mid::,0] = omegapred_np[0:ind_mid,0]
+
+			self.S_samples_vec = tf.convert_to_tensor(Sw_vec_np,tf.float32)
+			self.phi_samples_vec = tf.convert_to_tensor(phiw_vec_np,tf.float32)
+			self.W_samples = tf.convert_to_tensor(omegapred_np,tf.float32)
+
+			
 
 
 	@abstractmethod
@@ -458,8 +527,6 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	# @tf.function
 	def update_model(self,X,Y):
 
-		logger.info("Updating model for output dimension {0:d} / {1:d}".format(self.dim_out_ind+1,self.spectral_density.Sw_points.shape[1]))
-
 		self._update_dataset(X,Y)
 		self._update_features()
 
@@ -489,6 +556,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		if verbosity: logger.info("Computing matrix of features PhiX ...")
 		PhiX = self.get_features_mat(self.X) # [Npoints,Nfeat]
+		# PhiX = self.get_features_mat(self.X) / tf.math.sqrt(float(self.W_samples.shape[0])) # [Npoints,Nfeat]
 
 		PhiXTPhiX = tf.transpose(PhiX) @ PhiX
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
@@ -537,6 +605,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		# Get mean:
 		PhiXY_plus_mean_term = tf.transpose(self.PhiX) @ self.Y + self.get_Sigma_weights_inv_times_noise_var() @ self.get_prior_mean()
+		# mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term) / np.sqrt(1000.)
 		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term)
 		# mean_beta = (self.Lchol_of_inv @ tf.transpose(self.Lchol_of_inv)) @ PhiXY_plus_mean_term
 
@@ -635,9 +704,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
 
 		logger.info("Computing matrix of features Phi(xpred) ...")
-		Phi_pred = self.get_features_mat(xpred)
+		Phi_pred = self.get_features_mat(xpred) # [Nxpoints, Nomegas]
 
-		# pdb.set_trace()
 		mean_pred = Phi_pred @ mean_beta
 		cov_pred_chol = Phi_pred @ cov_beta_chol
 		cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol) # L.L^T

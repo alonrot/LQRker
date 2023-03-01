@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import tensorflow_probability as tfp
 from lqrker.utils.parsing import get_logger
 from lqrker.utils.common import CommonUtils
+import pickle
 import numpy as np
 logger = get_logger(__name__)
 
@@ -28,6 +29,7 @@ class SpectralDensityBase(ABC):
 		assert self.Nsamples_per_state0 % 2 == 0, "Need an even number, for now"
 		self.adaptive_hmc = None
 		self.Sw_points, self.phiw_points, self.W_points = None, None, None
+		self.dw_vec, self.dX_vec = None, None
 
 	@abstractmethod
 	def unnormalized_density(self):
@@ -129,7 +131,19 @@ class SpectralDensityBase(ABC):
 		"""
 
 		Sw, _ = self.unnormalized_density(omega_vec)
+		# pdb.set_trace()
+		# raise ValueError("This is incorrect fo rirregular grids.... ")
 		Dw_prod = (omega_vec[1,-1] - omega_vec[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+
+		try:
+			assert omega_vec[1,-1] - omega_vec[0,-1] == omega_vec[2,-1] - omega_vec[1,-1], "The grid might not be regular"
+			assert omega_vec[1,0] - omega_vec[0,0] == omega_vec[2,0] - omega_vec[1,0], "The grid might not be regular"
+
+		except:
+			# pdb.set_trace()
+			# raise NotImplementedError("This is harcoded, bad!!!!!")
+			Dw_prod = 0.04020**self.dim
+
 		const = tf.math.reduce_sum(Sw*Dw_prod,axis=0) # [self.dim,]
 
 		return const
@@ -247,6 +261,20 @@ class SpectralDensityBase(ABC):
 
 		return Sw_vec, phiw_vec, omegapred
 
+	def get_Wsamples_from_file(self,path2data):
+		logger.info("Loading {0:s} ...".format(path2data))
+		file = open(path2data, 'rb')
+		data_dict = pickle.load(file)
+		file.close()
+		omegapred = data_dict["omegas_trainedNN"]
+		Sw_vec = data_dict["Sw_omegas_trainedNN"]
+		phiw_vec = data_dict["varphi_omegas_trainedNN"]
+		dw_vec = data_dict["delta_omegas_trainedNN"]
+		dX_vec = data_dict["delta_statespace_trainedNN"]
+
+		return Sw_vec, phiw_vec, omegapred, dw_vec, dX_vec
+
+
 	# # @tf.function
 	# def update_Wsamples_uniform(self,omega_min,omega_max,Nsamples):
 	# 	self.W_points = tf.random.uniform(shape=(Nsamples,self.dim),minval=omega_min,maxval=omega_max,dtype=tf.dtypes.float32)
@@ -267,4 +295,15 @@ class SpectralDensityBase(ABC):
 	# @tf.function
 	def update_Wpoints_discrete(self,L,Ndiv,normalize_density_numerically=False,reshape_for_plotting=False):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_discrete(L,Ndiv,normalize_density_numerically,reshape_for_plotting)
+
+	def update_Wsamples_from_file(self,path2data):
+		self.Sw_points, self.phiw_points, self.W_points, self.dw_vec, self.dX_vec = self.get_Wsamples_from_file(path2data)
+
+	def update_Wsamples_as(self,Sw_points,phiw_points,W_points,dw_vec,dX_vec):
+		self.Sw_points, self.phiw_points, self.W_points, self.dw_vec, self.dX_vec = Sw_points, phiw_points, W_points, dw_vec, dX_vec
+
+
+
+
+
 

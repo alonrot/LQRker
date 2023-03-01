@@ -94,6 +94,7 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 
 	# @tf.function
 	def get_cholesky_of_cov_of_prior_beta(self):
+		raise ValueError("Get rid of this self.Zs !!!!!!!")
 		prior_var_factor = self.Dw / self.Zs * self.get_prior_variance()
 		# return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)) + self.get_noise_var())) # T-Student's process, observation prediction y
 		return tf.linalg.diag(tf.math.sqrt(tf.reshape(self.S_samples_vec*prior_var_factor,(-1)))) # T-Student's process, function prediction f(x)
@@ -104,6 +105,7 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 		# S_samples_vec_local = np.clip(self.S_samples_vec,1e-10,np.inf)
 		S_samples_vec_local = tf.clip_by_value(t=self.S_samples_vec,clip_value_min=1e-10,clip_value_max=float("Inf"))
 
+		raise ValueError("Get rid of this self.Zs !!!!!!!")
 		prior_var_factor = self.Dw / self.Zs * self.get_prior_variance()
 		aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(S_samples_vec_local*prior_var_factor,[-1]))
 		# aux = self.get_noise_var() * tf.linalg.diag(1./tf.reshape(self.S_samples_vec*prior_var_factor,(-1))) # Doesn't work when building a graph
@@ -134,7 +136,54 @@ class RRPDiscreteCosineFeatures(ReducedRankProcessBase):
 
 	# def get_logdetSigma_weights(self):
 	# 	return self.Nfeat*tf.math.log(self.prior_var)
+	# 	
+	# 	
 
+
+
+class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
+
+	def __init__(self, dim: int, cfg: dict, spectral_density: SpectralDensityBase, dim_out_ind=0):
+
+		super().__init__(dim,cfg,spectral_density,dim_out_ind)
+
+		# # self.Nfeat = self.W_samples.shape[0]
+		# self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
+
+		self.dbg_flag = False
+
+	def get_features_mat(self,X):
+		"""
+
+		X: [Nxpoints, dim_in]
+		return: PhiX: [Nxpoints, Nomegas]
+		"""
+
+		WX = X @ tf.transpose(self.W_samples) # [Nxpoints, Nomegas]
+		dbg_phase = 0.0
+		if self.dbg_flag:
+			dbg_phase = math.pi/32.0
+		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec) + dbg_phase) # [Nxpoints, Nomegas]
+
+		return harmonics_vec
+
+	def get_prior_mean(self):
+		prior_mean_factor = self.get_prior_mean_factor()
+		return self.dw_vec * self.S_samples_vec * prior_mean_factor # [Nomegas,1]
+
+	def get_cholesky_of_cov_of_prior_beta(self):
+		diag_els = tf.squeeze(self.S_samples_vec * self.dw_vec * self.get_prior_variance()) # [Nomegas,]
+		return tf.linalg.diag(tf.math.sqrt(diag_els)) # [Nomegas,Nomegas]
+		
+	def get_Sigma_weights_inv_times_noise_var(self):
+
+		S_samples_vec_local = tf.clip_by_value(t=self.S_samples_vec,clip_value_min=1e-10,clip_value_max=float("Inf")) # [Nomegas,1]
+		diag_els = 1. / tf.squeeze(S_samples_vec_local * self.dw_vec * self.get_prior_variance()) # [Nomegas,]
+		out_mat = self.get_noise_var() * tf.linalg.diag(diag_els) # [Nomegas,Nomegas]
+		if tf.math.reduce_any(tf.math.is_inf(out_mat)):
+			print(out_mat)
+			pdb.set_trace()
+		return out_mat
 
 
 class RRPRegularFourierFeatures(ReducedRankProcessBase):

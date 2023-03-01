@@ -20,6 +20,9 @@ class SquaredExponentialSpectralDensity(SpectralDensityBase):
 		# Constant parameters:
 		self.const = (2.*math.pi*self.ls**2)**(self.dim/2)
 
+		# Compatibility with nonlinearsys
+		self.xdata = -1.0
+
 	def unnormalized_density(self,omega_in,log=False):
 		"""
 		in: omega_in [Nfeat,dim]
@@ -50,6 +53,10 @@ class SquaredExponentialSpectralDensity(SpectralDensityBase):
 
 	def _nonlinear_system_fun(self,x):
 		return tf.zeros(x.shape)
+
+	def update_dX_voxels(self,dX_new):
+		# Compatibility with nonlinearsys
+		return None
 
 
 class MaternSpectralDensity(SpectralDensityBase):

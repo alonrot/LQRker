@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import sys
 
-from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures
+from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures, RRPDiscreteCosineFeaturesVariableIntegrationStep
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -44,7 +44,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		self.dim_in = dim_in
 		self.dim_out = Ytrain.shape[1]
 
-		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures"]
+		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures","RRPDiscreteCosineFeaturesVariableIntegrationStep"]
 
 		self.rrgpMO = [None]*self.dim_out
 		for ii in range(self.dim_out):
@@ -54,9 +54,11 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			elif cfg.gpmodel.which_features == "RRPDiscreteCosineFeatures":
 				self.rrgpMO[ii] = RRPDiscreteCosineFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
 
-
 				# self.rrgpMO[ii].update_model(Xtrain,Ytrain[:,ii:ii+1]) # Update model indexing the target outputs at the corresponding dimension
 				# self.rrgpMO[ii].get_MLII_loss_gaussian_predictive(xpred=Xtrain)
+
+			elif cfg.gpmodel.which_features == "RRPDiscreteCosineFeaturesVariableIntegrationStep":
+				self.rrgpMO[ii] = RRPDiscreteCosineFeaturesVariableIntegrationStep(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
 
 			elif cfg.gpmodel.which_features == "RRPRegularFourierFeatures":
 				self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
@@ -79,8 +81,10 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 	def update_model(self,X,Y):
 
 		# self.update_weights_in_individual_models()
+		# pdb.set_trace()
 
 		for ii in range(self.dim_out):
+			logger.info("Updating model for output dimension {0:d} / {1:d} ...".format(ii+1,self.dim_out))
 			self.rrgpMO[ii].update_model(X,Y[:,ii:ii+1]) # Update model indexing the target outputs at the corresponding dimension
 
 	# @tf.function
