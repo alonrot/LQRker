@@ -150,6 +150,10 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 		# # self.Nfeat = self.W_samples.shape[0]
 		# self.Dw = (self.W_samples[1,-1] - self.W_samples[0,-1])**self.dim # Equivalent to math.pi/L for self.spectral_density.get_Wpoints_discrete()
 
+
+		self.dbg_phase_added_to_features = 0.0
+
+
 	def get_features_mat(self,X):
 		"""
 
@@ -158,7 +162,7 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 		"""
 
 		WX = X @ tf.transpose(self.W_samples) # [Nxpoints, Nomegas]
-		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec)) # [Nxpoints, Nomegas]
+		harmonics_vec = tf.math.cos(WX + tf.transpose(self.phi_samples_vec) + self.dbg_phase_added_to_features) # [Nxpoints, Nomegas]
 
 		return harmonics_vec
 
