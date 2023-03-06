@@ -147,20 +147,26 @@ class KinkSpectralDensity(NonLinearSystemSpectralDensity):
 
 class ParaboloidSpectralDensity(NonLinearSystemSpectralDensity):
 
-	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int, integration_method: str, Xtrain=None, Ytrain=None):
-		super().__init__(cfg,cfg_sampler,dim,integration_method,Xtrain,Ytrain)
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim_in: int, integration_method: str, Xtrain: tf.Tensor, Ytrain: tf.Tensor):
+		super().__init__(cfg,cfg_sampler,dim_in,integration_method,Xtrain,Ytrain)
 
 	def _nonlinear_system_fun(self,x):
-		"""
-		x: [Npoints,self.dim_in]
-		"""
-		# return tf.math.reduce_sum(x**2,axis=1)
-		# return tf.math.reduce_sum(x**2,axis=1,keepdims=True)
-		return self._nonlinear_system_fun_static(x)
+		return self._nonlinear_system_fun_static(x,model_pars=None)
 
 	@staticmethod
-	def _nonlinear_system_fun_static(x):
-		return tf.math.reduce_sum(x**2,axis=1,keepdims=True)
+	def _nonlinear_system_fun_static(x,model_pars=None):
+
+		# True parameters:
+		a0 = 0.0
+		a1 = 0.0
+		a2 = 1.0
+
+		if model_pars is not None:
+			a0 = model_pars["a0"]
+			a1 = model_pars["a1"]
+			a2 = model_pars["a2"]
+
+		return a0 + tf.math.reduce_sum(a2*(x-a1)**2,axis=1,keepdims=True)
 
 class NoNameSpectralDensity(NonLinearSystemSpectralDensity):
 

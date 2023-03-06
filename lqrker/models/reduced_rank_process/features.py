@@ -153,6 +153,8 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 
 		self.dbg_phase_added_to_features = 0.0
 
+		self.hack_constant_variance = False
+
 
 	def get_features_mat(self,X):
 		"""
@@ -172,12 +174,20 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 
 	def get_cholesky_of_cov_of_prior_beta(self):
 		diag_els = tf.squeeze(self.S_samples_vec * self.dw_vec * self.get_prior_variance()) # [Nomegas,]
+
+		if self.hack_constant_variance:
+			diag_els = self.get_prior_variance() * tf.ones(self.S_samples_vec.shape[0]) # [Nomegas,]
+
 		return tf.linalg.diag(tf.math.sqrt(diag_els)) # [Nomegas,Nomegas]
 		
 	def get_Sigma_weights_inv_times_noise_var(self):
 
 		S_samples_vec_local = tf.clip_by_value(t=self.S_samples_vec,clip_value_min=1e-10,clip_value_max=float("Inf")) # [Nomegas,1]
 		diag_els = 1. / tf.squeeze(S_samples_vec_local * self.dw_vec * self.get_prior_variance()) # [Nomegas,]
+
+		if self.hack_constant_variance:
+			diag_els = self.get_prior_variance() * tf.ones(self.S_samples_vec.shape[0]) # [Nomegas,]
+
 		out_mat = self.get_noise_var() * tf.linalg.diag(diag_els) # [Nomegas,Nomegas]
 		if tf.math.reduce_any(tf.math.is_inf(out_mat)):
 			print(out_mat)

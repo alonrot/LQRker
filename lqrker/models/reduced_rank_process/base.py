@@ -703,7 +703,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior)
 
-		logger.info("Computing matrix of features Phi(xpred) ...")
+		# logger.info("Computing matrix of features Phi(xpred) ...")
 		Phi_pred = self.get_features_mat(xpred) # [Nxpoints, Nomegas]
 
 		mean_pred = Phi_pred @ mean_beta
