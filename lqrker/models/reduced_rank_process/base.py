@@ -156,6 +156,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# Spectral density to be used:
 		
 		if spectral_density.Sw_points.ndim == 3:
+			pdb.set_trace()
 			assert spectral_density.phi_samples_vec.ndim == 3
 			assert spectral_density.W_samples.ndim == 3
 			assert spectral_density.dw_vec.ndim == 3
@@ -721,7 +722,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		return tf.squeeze(mean_pred), cov_pred
 
 	# @tf.function
-	def get_sample_path_callable(self,Nsamples,from_prior=False):
+	def get_sample_path_callable(self,Nsamples,from_prior=False,sample_mv0=None):
 
 		# logger.info("Predicting; from_prior = {0:s} || self.dim_out_ind = {1:d} ...".format(str(from_prior),self.dim_out_ind))
 		mean_beta, cov_beta_chol = self.predict_beta(from_prior) # Computationally expensive call
@@ -744,8 +745,12 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 		Not using self.acquired_sample_mv0_for_sample_path_callable
 		"""
-		Nfeat = cov_beta_chol.shape[0]
-		sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
+		if sample_mv0 is None:
+			Nfeat = cov_beta_chol.shape[0]
+			sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
+		else:
+			assert sample_mv0.shape[0] == cov_beta_chol.shape[0]
+			assert sample_mv0.shape[1] == Nsamples
 
 		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0 # [Nfeat,1] + [Nfeat,Nfeat] @ [Nfeat,Nsamples]
 

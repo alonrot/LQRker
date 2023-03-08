@@ -58,7 +58,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 				# self.rrgpMO[ii].get_MLII_loss_gaussian_predictive(xpred=Xtrain)
 
 			elif cfg.gpmodel.which_features == "RRPDiscreteCosineFeaturesVariableIntegrationStep":
-				self.rrgpMO[ii] = RRPDiscreteCosineFeaturesVariableIntegrationStep(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
+				# self.rrgpMO[ii] = RRPDiscreteCosineFeaturesVariableIntegrationStep(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
+				self.rrgpMO[ii] = RRPDiscreteCosineFeaturesVariableIntegrationStep(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density[ii],dim_out_ind=ii)
 
 			elif cfg.gpmodel.which_features == "RRPRegularFourierFeatures":
 				self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
@@ -180,7 +181,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 	# @tf.function
-	def get_sample_path_callable(self,Nsamples,from_prior=False):
+	def get_sample_path_callable(self,Nsamples,from_prior=False,sample_mv0=None):
 
 		def nonlinfun_sampled_callable(x):
 			"""
@@ -193,7 +194,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 			out = []
 			for ii in range(self.dim_out):
-				fx_ii = self.rrgpMO[ii].get_sample_path_callable(Nsamples,from_prior)
+				fx_ii = self.rrgpMO[ii].get_sample_path_callable(Nsamples,from_prior,sample_mv0)
 				out_ii = fx_ii(x) # [Npoints,Nsamples]
 				out += [out_ii]
 
@@ -230,7 +231,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			self.rrgpMO[ii].train_model(verbosity)
 
 	# @tf.function
-	def _rollout_model_given_control_sequence_tf(self,x0,Nsamples,Nrollouts,u_traj,traj_length,sort=False,plotting=False,dbg=True,verbo=False,str_progress_bar="",from_prior=False):
+	def _rollout_model_given_control_sequence_tf(self,x0,Nsamples,Nrollouts,u_traj,traj_length,sort=False,plotting=False,dbg=True,verbo=False,str_progress_bar="",from_prior=False,sample_fx_once=False):
 		"""
 
 		Pass two initial latent values
@@ -266,18 +267,24 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 			assert Nsamples > 0
 
-		assert Nsamples == 1, "We need one sample per roll-out"
+		assert Nsamples == 1, "We need one fx sample per roll-out"
 
 
 		# Initialize:
 		state_trajectory_per_rollout = tf.TensorArray(dtype=tf.float32,size=traj_length,dynamic_size=False)
 		state_trajectories_all = tf.TensorArray(dtype=tf.float32,size=Nrollouts,dynamic_size=False) # [Nrollouts,traj_length,self.dim_out]
 
+		if sample_fx_once: # Pre-sample the noise vector that wil characterize the models, one per roll-out. Keep the same sample (i.e., model) accross all calls to this function _rollout_model_given_control_sequence_tf()
+			Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
+			sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples]
+		else:
+			sample_mv0 = [None]*Nrollouts
+		
 		for ss in range(Nrollouts):
 
 			self._print_progess_bar(ii=ss,Ntot=Nrollouts,name=str_progress_bar+"Rolling out model ")
 
-			fx = self.get_sample_path_callable(Nsamples=Nsamples,from_prior=from_prior)
+			fx = self.get_sample_path_callable(Nsamples=Nsamples,from_prior=from_prior,sample_mv0=sample_mv0[ss]) # resample: We sample the possible models only once, and keep the sample for all the rollouts
 
 			state_curr = x0 # [Npoints,self.dim_in], with Npoints=1
 			state_trajectory_per_rollout = state_trajectory_per_rollout.write(0, tf.reshape(x0,(self.dim_out)))
@@ -494,6 +501,9 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 	# @tf.function
 	def get_loss_debug(self):
+
+		raise NotImplementedError("Deprecated")
+
 		loss_val = 0.0
 		for ii in range(self.dim_out):
 			loss_val += 3.*self.rrgpMO[ii].log_noise_std**(ii+2) + 5.0
@@ -503,6 +513,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 	# @tf.function
 	def get_loss_debug_2(self,z_vec_real,u_traj_real,Nhorizon):
+
+		raise NotImplementedError("Deprecated")
 		
 		self.update_features()
 
@@ -519,7 +531,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		return loss_val
 
 	# @tf.function
-	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0):
+	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0,sample_fx_once=False):
 		"""
 
 		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1
@@ -531,99 +543,26 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		"""
 
-		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
-		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-		# if update_features:
-		# 	self.update_features()
-			# raise NotImplementedError("Call each subclass' _update_features()")
-			# self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-
 		log_noise_std_vec = self.get_log_noise_std_vec()
 		noise_var_vec = self.get_noise_var_vec()
 
-		# pdb.set_trace()
-
-		# Assume for now a single trajectory as real data Xstate_pred, i.e., [Nrollouts=1,traj_length,self.dim_out]
-
-		# # Numpy:
-		# x0 = Xstate_real[0,0:1,:]
-		# x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_numpy(x0,Nsamples,Nrollouts,u_traj_real,traj_length=-1,sort=False,plotting=False) # [Nrollouts,traj_length-1,self.dim_out]
-
 		# Tensorflow:
-		# pdb.set_trace()
 		x0_tf = tf.convert_to_tensor(value=Xstate_real[0,0:1,:],dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 		u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 		x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_tf(x0=x0_tf,Nsamples=1,Nrollouts=Nrollouts,u_traj=u_applied_tf,traj_length=-1,
-																				sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior)
+																				sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior,
+																				sample_fx_once=sample_fx_once)
 		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 
-		# return tf.math.reduce_sum(x_traj_pred**2), x_traj_pred, y_traj_pred
-
-		# pdb.set_trace()
-		# den_aux = tf.linalg.diag(1./noise_var_vec)
-
-		# error_weighted = tf.math.reduce_sum(den_aux)
-
-
-		# y_traj_pred_err = y_traj_pred @ den_aux
-		# Xstate_real_err = Xstate_real[:,1::,:] @ den_aux
-		# error = (y_traj_pred_err - Xstate_real_err)**2
-		# error_weighted = error
-
-
-
-		# pdb.set_trace()
-		# error = (y_traj_pred - Xstate_real[:,1::,:]) / np.reshape(np.sqrt(noise_var_vec),(1,1,self.dim_out)) # [Nrollouts,traj_length-1,self.dim_out]
-		# error = (y_traj_pred - Xstate_real[:,1::,:]) / tf.reshape(tf.math.sqrt(noise_var_vec),[1,1,self.dim_out]) # [Nrollouts,traj_length-1,self.dim_out]
 		error = (y_traj_pred - Xstate_real[:,1::,:])**2 # [Nrollouts,traj_length-1,self.dim_out]
 		error_weighted = error / tf.reshape(noise_var_vec,(1,1,self.dim_out))
 
-		# aaaaa = tf.reshape(noise_var_vec,[1,1,self.dim_out])
-		# error = error / tf.reshape(noise_var_vec,[1,1,self.dim_out])
-		# error = tf.math.divide(error,tf.reshape(noise_var_vec,[1,1,self.dim_out]))
-		# noise_var_vec[0] = 1.0; noise_var_vec[1] = 2.0; noise_var_vec[2] = 4.0
-		# error_broken = error / tf.reshape(noise_var_vec,[1,1,self.dim_out])
-		# pdb.set_trace()
-		# error_weighted = tf.math.divide(error,tf.reshape(noise_var_vec,(1,1,self.dim_out)))
-		# error_weighted = tf.math.multiply(error,tf.reshape(1./noise_var_vec,(1,1,self.dim_out)))
-		# error_weighted = error @ tf.linalg.diag(1./noise_var_vec)
-		# den_aux = tf.linalg.diag(1./noise_var_vec)
-		# error_weighted = error @ den_aux
-
-
-
-
-
-
-		# for dd in range(error.shape[2]):
-		# 	error[:,:,dd] = error[:,:,dd] / self.rrgpMO[dd].get_noise_var()
-
-		# return -tf.math.reduce_sum(error**2,axis=[0,1]), x_traj_pred, y_traj_pred
-
-		# return -tf.math.reduce_sum(error**2,axis=[0,1]), x_traj_pred, y_traj_pred
-
-		# # Full loss:
-		# term_data_fit = -0.5*np.sum(np.linalg.norm(error,ord=2,axis=2)**2)
-		# term_model_complexity = -np.sum(log_noise_std_vec)*y_traj_pred.shape[0]*y_traj_pred.shape[1]
-		# # term_const = -self.dim_out*math.pi*y_traj_pred.shape[0]*y_traj_pred.shape[1]
-		# # loss_val = term_data_fit + term_model_complexity + term_const
-		# loss_val = -(term_data_fit + term_model_complexity)
-
-		# # Each dimensions gets its loss:
-		# # term_data_fit_vec = -0.5*tf.math.reduce_sum(error**2,axis=[0,1]) # [self.dim_out,]
-		# term_data_fit_vec = -0.5*tf.math.reduce_sum(error,axis=[0,1]) # [self.dim_out,]
-		# term_model_complexity_vec = -log_noise_std_vec*y_traj_pred.shape[0]*y_traj_pred.shape[1] # [self.dim_out,]
-		# loss_per_dim = -(term_data_fit_vec + term_model_complexity_vec) # [self.dim_out,]
-
-
-		# Loss || Averaged likelihood:
+		# Loss || Averaged log-likelihood:
 		term_data_fit_vec = -0.5*tf.math.reduce_sum(error_weighted) # [,]
 		term_model_complexity_vec = -tf.math.reduce_sum(log_noise_std_vec)*y_traj_pred.shape[0]*y_traj_pred.shape[1] # [,]
 		loss_log_evidence = -(term_data_fit_vec + term_model_complexity_vec) # [,]
 		loss_log_evidence_avg = loss_log_evidence / (y_traj_pred.shape[0]*y_traj_pred.shape[1])
-
-		
 
 		# Loss || Averaged entropy:
 		# We need the predictive variance for each state
@@ -651,6 +590,11 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 	# @tf.function
 	def get_negative_log_evidence_predictive_full_trajs_in_batch(self,update_features,plotting_dict,Nrollouts,from_prior=False):
+		"""
+
+		return:
+		x_traj_pred_chunks: [Nchunks,Nrollouts,Nhorizon,self.dim_out]
+		"""
 
 		if plotting_dict["plotting"]:
 			block_plot = plotting_dict["block_plot"]
@@ -670,11 +614,12 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		Nchunks = Nsteps//self.Nhorizon
 		verbo_loss_val_vec = np.zeros(Nchunks)
 		logger.info(" * Trajectory prediction: xpred_[t:t+H] given {x_t,u_t,u_[t+1],...,u_[t+H]}")
-		logger.info(" * Loss: log E[p(yreal_[t:t+H] | xpred_[t:t+H])], with E[] wrt posterior p(x_[t:t+H] | Data)")
+		logger.info(" * Loss: E[log p(yreal_[t:t+H] | xpred_[t:t+H])] + H(p), with E[] wrt posterior p(x_[t:t+H] | Data) and H(p) its entropy")
 		logger.info("    * Trajectory divided in {0:d} chunks, with Nhorizon = {1:d}".format(Nchunks,self.Nhorizon))
 		logger.info("    * Control sequence length: {0:d} steps".format(Nsteps))
 		logger.info(" * Weights (current): {0:s}".format(self._weights2str(self.get_weights())))
 
+		x_traj_pred_chunks = np.zeros((Nchunks,Nrollouts,self.Nhorizon,self.dim_out))
 		for ii in range(Nchunks):
 
 			# logger.info("    * Prediction for chunk {0:d} / {1:d} || Steps: [{2:d}:{3:d}]".format(ii+1,Nchunks,ii*self.Nhorizon,(ii+1)*self.Nhorizon))
@@ -688,30 +633,33 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			# x_traj_real_applied = np.reshape(x_traj_real,(1,self.Nhorizon,self.dim_out))
 			# x_traj_real_applied_tf = tf.convert_to_tensor(value=x_traj_real_applied,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 			# u_applied_tf = tf.convert_to_tensor(value=u_applied,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
-			loss_val, x_traj_pred, _ = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
-																										Nrollouts=Nrollouts,str_progress_bar=str_progress_bar,from_prior=from_prior,
-																										scale_loss_entropy=self.scale_loss_entropy,
-																										scale_prior_regularizer=self.scale_prior_regularizer)
+			loss_val, x_traj_pred, y_traj_pred = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
+																												Nrollouts=Nrollouts,str_progress_bar=str_progress_bar,from_prior=from_prior,
+																												scale_loss_entropy=self.scale_loss_entropy,
+																												scale_prior_regularizer=self.scale_prior_regularizer)
+
+			# Store some variables for plotting:
+			x_traj_pred_all = np.concatenate([x_traj_pred,y_traj_pred[:,-1::,:]],axis=1)
+			x_traj_pred_chunks[ii,...] = x_traj_pred_all
+
 			verbo_loss_val_vec[ii] = loss_val.numpy()
 
 			logger.info("    * Done! Cumulated average loss: {0:f}".format(float(np.mean(verbo_loss_val_vec[0:ii+1]))))
 
 			if plotting_dict["plotting"]:
-				# hdl_splots_pred.plot(x_traj_real[:,0],x_traj_real[:,1],marker=".",linestyle="-",color="royalblue",lw=1.0,markersize=5)
-				# for ss in range(x_traj_pred.shape[2]):
-				# 	hdl_splots_pred.plot(x_traj_pred[:,0,ss],x_traj_pred[:,1,ss],marker=".",linestyle="-",color="grey",lw=0.5)
-				for ss in range(x_traj_pred.shape[0]):
+				for ss in range(y_traj_pred.shape[0]):
 					if ii == 0 and ss == 0: label_x_traj_pred = r"Predictions"
 					else: label_x_traj_pred = None
-					hdl_splots_pred.plot(x_traj_pred[ss,:,0],x_traj_pred[ss,:,1],marker=".",linestyle="-",color="indianred",lw=0.5,markersize=5,label=label_x_traj_pred)
+					hdl_splots_pred.plot(x_traj_pred_all[ss,:,0],x_traj_pred_all[ss,:,1],linestyle="-",color="crimson",lw=0.5,alpha=0.5,label=label_x_traj_pred)
+
 
 		if plotting_dict["plotting"]:
 			if plotting_dict["ref_xt_vec"] is not None:
 				hdl_splots_pred.plot(ref_xt_vec[:,0],ref_xt_vec[:,1],marker=".",linestyle="-",color="grey",lw=1.0,markersize=5,label=r"Reference",alpha=0.5)
 			if plotting_dict["z_vec"] is not None:
-				hdl_splots_pred.plot(z_vec[:,0],z_vec[:,1],marker=".",linestyle="-",color="lightblue",lw=1.0,markersize=5,label=r"Real traj - nominal dynamics",alpha=0.5)
+				hdl_splots_pred.plot(z_vec[:,0],z_vec[:,1],linestyle="-",color="navy",lw=2.0,label=r"Real traj - nominal dynamics",alpha=0.3)
 			if plotting_dict["z_vec_changed_dyn"] is not None:
-				hdl_splots_pred.plot(z_vec_changed_dyn[:,0],z_vec_changed_dyn[:,1],marker=".",linestyle="-",color="mediumblue",lw=1.0,markersize=5,label=r"Real traj - changed dynamics",alpha=0.5)
+				hdl_splots_pred.plot(z_vec_changed_dyn[:,0],z_vec_changed_dyn[:,1],linestyle="-",color="navy",lw=2.0,label=r"Real traj - changed dynamics",alpha=0.7)
 			if title_fig != "Predictions || Using prior, no training":
 				hdl_splots_pred.legend()
 			plt.show(block=block_plot)
@@ -720,7 +668,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		loss_val_avg = loss_val / (Nchunks)
 		logger.info(" * Loss averaged wrt {0:d} chunks: {1:f}".format(Nchunks,np.mean(verbo_loss_val_vec[0:ii])))
 
-		return loss_val_avg
+		return loss_val_avg, x_traj_pred_chunks
 
 	def update_dataset_predictive_loss(self,z_vec_real,u_traj_real,Nhorizon,learning_rate,epochs,stop_loss_val,scale_loss_entropy,scale_prior_regularizer,Nrollouts):
 		self.z_vec_real = z_vec_real
@@ -776,7 +724,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			# with tf.GradientTape(persistent=True) as tape:
 			with tf.GradientTape() as tape:
 				# loss_val_per_dim = self.get_negative_log_evidence_predictive_full_trajs_in_batch(self.z_vec_real,self.u_traj_real,self.Nhorizon,update_features=True)
-				loss_value = self.get_negative_log_evidence_predictive_full_trajs_in_batch(update_features=epoch>0,plotting_dict=plotting_dict,Nrollouts=self.Nrollouts,from_prior=False)
+				loss_value,_ = self.get_negative_log_evidence_predictive_full_trajs_in_batch(update_features=epoch>0,plotting_dict=plotting_dict,Nrollouts=self.Nrollouts,from_prior=False)
 				# loss_value = self.get_loss_debug()
 				# loss_value = self.get_loss_debug_2(self.z_vec_real,self.u_traj_real,self.Nhorizon)
 

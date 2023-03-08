@@ -261,16 +261,30 @@ class SpectralDensityBase(ABC):
 
 		return Sw_vec, phiw_vec, omegapred
 
-	def get_Wsamples_from_file(self,path2data):
+	# def get_Wsamples_from_file(self,path2data):
+	# 	logger.info("Loading {0:s} ...".format(path2data))
+	# 	file = open(path2data, 'rb')
+	# 	data_dict = pickle.load(file)
+	# 	file.close()
+	# 	pdb.set_trace()
+	# 	omegapred = data_dict["omegas_trainedNN"]
+	# 	Sw_vec = data_dict["Sw_omegas_trainedNN"]
+	# 	phiw_vec = data_dict["varphi_omegas_trainedNN"]
+	# 	dw_vec = data_dict["delta_omegas_trainedNN"]
+	# 	dX_vec = data_dict["delta_statespace_trainedNN"]
+
+	# 	return Sw_vec, phiw_vec, omegapred, dw_vec, dX_vec
+
+	def get_Wsamples_from_file(self,path2data,ind_out):
 		logger.info("Loading {0:s} ...".format(path2data))
 		file = open(path2data, 'rb')
 		data_dict = pickle.load(file)
 		file.close()
-		omegapred = data_dict["omegas_trainedNN"]
-		Sw_vec = data_dict["Sw_omegas_trainedNN"]
-		phiw_vec = data_dict["varphi_omegas_trainedNN"]
-		dw_vec = data_dict["delta_omegas_trainedNN"]
-		dX_vec = data_dict["delta_statespace_trainedNN"]
+		omegapred = data_dict["omegas_trainedNN"][ind_out,...]
+		Sw_vec = data_dict["Sw_omegas_trainedNN"][ind_out,...]
+		phiw_vec = data_dict["varphi_omegas_trainedNN"][ind_out,...]
+		dw_vec = data_dict["delta_omegas_trainedNN"][ind_out,...]
+		dX_vec = data_dict["delta_statespace_trainedNN"][ind_out,...]
 
 		return Sw_vec, phiw_vec, omegapred, dw_vec, dX_vec
 
@@ -296,8 +310,8 @@ class SpectralDensityBase(ABC):
 	def update_Wpoints_discrete(self,L,Ndiv,normalize_density_numerically=False,reshape_for_plotting=False):
 		self.Sw_points, self.phiw_points, self.W_points = self.get_Wpoints_discrete(L,Ndiv,normalize_density_numerically,reshape_for_plotting)
 
-	def update_Wsamples_from_file(self,path2data):
-		self.Sw_points, self.phiw_points, self.W_points, self.dw_vec, self.dX_vec = self.get_Wsamples_from_file(path2data)
+	def update_Wsamples_from_file(self,path2data,ind_out):
+		self.Sw_points, self.phiw_points, self.W_points, self.dw_vec, self.dX_vec = self.get_Wsamples_from_file(path2data,ind_out)
 
 	def update_Wsamples_as(self,Sw_points,phiw_points,W_points,dw_vec,dX_vec):
 		self.Sw_points, self.phiw_points, self.W_points, self.dw_vec, self.dX_vec = Sw_points, phiw_points, W_points, dw_vec, dX_vec

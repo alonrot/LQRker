@@ -306,7 +306,7 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 
 	@staticmethod
 	# def _controlled_dubinscar_dynamics(x, y, th, u1, u2, use_nominal_model=True):
-	def _controlled_dubinscar_dynamics(state_vec, control_vec, use_nominal_model=True):
+	def _controlled_dubinscar_dynamics(state_vec, control_vec, use_nominal_model=True,control_vec_prev=None):
 		"""
 		state_vec: [Npoints,self.dim_in]
 		control_vec: [Npoints,dim_u]
@@ -354,7 +354,8 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 
 			# which_alteration = "slacking"
 			which_alteration = "disturbance"
-			assert which_alteration in ["slacking","disturbance"]
+			# which_alteration = "lowpass"
+			assert which_alteration in ["slacking","disturbance","lowpass"]
 
 			# Change model slacking the input
 			if which_alteration == "slacking":
@@ -365,13 +366,25 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 				u2_in = tf.math.sign(u2)*tf.clip_by_value(t=tf.math.abs(u2),clip_value_min=vel_ang_min,clip_value_max=vel_ang_max)
 
 			# Change the model adding a constant disturbance:
-			if which_alteration == "disturbance": # IMPORTANT: This needs to agree with get_sequence_of_feedback_gains_finite_horizon_LQR() @ test_dubin_car.py
+			if which_alteration == "disturbance": # IMPORTANT: This needs to agree with the linearized model at get_sequence_of_feedback_gains_finite_horizon_LQR() @ test_dubin_car.py
 				u1_in = u1*2.0
 				# u1_in = u1/2.0
 				# u1_in = u1 - 0.5
 				# u2_in = u2 - 1.0
 				# u2_in = u2
 				u2_in = u2*3.0
+
+			# Change the model adding a constant disturbance:
+			if which_alteration == "lowpass": # IMPORTANT: This needs to agree with the linearized model at get_sequence_of_feedback_gains_finite_horizon_LQR() @ test_dubin_car.py
+				if control_vec_prev is not None:
+					u1p = control_vec_prev[:,0:1]
+					u2p = control_vec_prev[:,1:2]
+
+					u1_in = deltaT*u1 - u1p*(deltaT-1.) # ref_t - u_t*(deltaT-1)
+					u2_in = deltaT*u2 - u2p*(deltaT-1.) # ref_t - u_t*(deltaT-1)
+				else:
+					u1_in = u1
+					u2_in = u2
 		else:
 			u1_in = u1
 			u2_in = u2
