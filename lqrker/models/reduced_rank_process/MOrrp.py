@@ -26,7 +26,7 @@ plt.rc('legend',fontsize=fontsize_labels+2)
 class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 	# @tf.function
-	def __init__(self, dim_in: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain, **kwargs):
+	def __init__(self, dim_in: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain, using_deltas=False, **kwargs):
 
 		"""
 		
@@ -43,6 +43,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		self.dim_in = dim_in
 		self.dim_out = Ytrain.shape[1]
+		self.using_deltas = using_deltas
 
 		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures","RRPDiscreteCosineFeaturesVariableIntegrationStep"]
 
@@ -241,6 +242,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		return:
 		xsamples_X: [Npoints,self.dim_out,Nsamples]
 		xsamples_Y: [Npoints,self.dim_out,Nsamples]
+
+		Regardless of self.using_deltas, this function returns the actual state, not the deltas
 		
 		TODO: Refactor as
 		Nsamples_per_particle <- Nsamples
@@ -292,6 +295,10 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			for ii in range(0,traj_length-1):
 				xsample_curr = tf.concat([state_curr,u_traj[ii:ii+1,:]],axis=1) # [ [Npoints,self.dim_in] , [1,dim_u] ], with Npoints=1
 				state_next = fx(xsample_curr) # xsample_next: [Npoints,self.dim_out,Nsamples], with Npoints=1, Nsamples=1
+
+				if self.using_deltas:
+					state_next += tf.expand_dims(state_curr,axis=2)
+
 				state_trajectory_per_rollout = state_trajectory_per_rollout.write(ii+1, tf.reshape(state_next,(self.dim_out)))
 				state_curr =  tf.reshape(state_next,(1,self.dim_out))
 
@@ -549,12 +556,14 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		# Tensorflow:
 		x0_tf = tf.convert_to_tensor(value=Xstate_real[0,0:1,:],dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 		u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
+		# Regardless of self.using_deltas, the function below returns the actual state, not the deltas
 		x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_tf(x0=x0_tf,Nsamples=1,Nrollouts=Nrollouts,u_traj=u_applied_tf,traj_length=-1,
 																				sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior,
 																				sample_fx_once=sample_fx_once)
 		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 
+		# Compute the error excluding the initial state because Xstate_real[:,0,:] = x_traj_pred[:,0,:], which yields zero error and diesn't contribute
 		error = (y_traj_pred - Xstate_real[:,1::,:])**2 # [Nrollouts,traj_length-1,self.dim_out]
 		error_weighted = error / tf.reshape(noise_var_vec,(1,1,self.dim_out))
 
@@ -595,6 +604,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		return:
 		x_traj_pred_chunks: [Nchunks,Nrollouts,Nhorizon,self.dim_out]
 		"""
+
+		raise NotImplementedError("This function is deprecated; it computes predictions in discrete chunks; we need predictions at every time step")
 
 		if plotting_dict["plotting"]:
 			block_plot = plotting_dict["block_plot"]
@@ -724,6 +735,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			# with tf.GradientTape(persistent=True) as tape:
 			with tf.GradientTape() as tape:
 				# loss_val_per_dim = self.get_negative_log_evidence_predictive_full_trajs_in_batch(self.z_vec_real,self.u_traj_real,self.Nhorizon,update_features=True)
+				print("Shouldn't this be update_features=epoch==0 ????????????")
 				loss_value,_ = self.get_negative_log_evidence_predictive_full_trajs_in_batch(update_features=epoch>0,plotting_dict=plotting_dict,Nrollouts=self.Nrollouts,from_prior=False)
 				# loss_value = self.get_loss_debug()
 				# loss_value = self.get_loss_debug_2(self.z_vec_real,self.u_traj_real,self.Nhorizon)
