@@ -789,6 +789,31 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		logger.info("Training finished!")
 
+	def export_tensors_needed_for_sampling_predictions_using_sampled_model_instances(self):
+
+		Nomegas = self.rrgpMO[0].S_samples_vec.shape[0]
+
+		S_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		phi_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		W_samples_all_dim = np.zeros((self.dim_out,Nomegas,self.dim_in))
+		dw_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		mean_beta_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		cov_beta_chol_all_dim = np.zeros((self.dim_out,Nomegas,Nomegas))
+		for ii in range(self.dim_out):
+			S_samples_all_dim[ii,...] = self.rrgpMO[ii].S_samples_vec # [Nomegas,1]
+			phi_samples_all_dim[ii,...] = self.rrgpMO[ii].phi_samples_vec # [Nomegas,1]
+			W_samples_all_dim[ii,...] = self.rrgpMO[ii].W_samples # [Nomegas,self.dim]
+			dw_samples_all_dim[ii,...] = self.rrgpMO[ii].dw_vec # [Nomegas,1]
+			mean_beta_all_dim[ii,...], cov_beta_chol_all_dim[ii,...] = self.predict_beta(from_prior=False)
+
+		tensors4predictions = dict(	S_samples_all_dim=S_samples_all_dim,
+									phi_samples_all_dim=phi_samples_all_dim,
+									W_samples_all_dim=W_samples_all_dim,
+									dw_samples_all_dim=dw_samples_all_dim,
+									mean_beta_all_dim=mean_beta_all_dim,
+									cov_beta_chol_all_dim=cov_beta_chol_all_dim)
+
+		return tensors4predictions
 
 	def _weights2str(self,trainable_weights):
 		

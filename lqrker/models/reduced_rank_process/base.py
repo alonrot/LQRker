@@ -748,6 +748,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		if sample_mv0 is None:
 			Nfeat = cov_beta_chol.shape[0]
 			sample_mv0 = self.get_sample_multivariate_standard_prior(Nfeat,Nsamples) # [Nfeat,Nsamples]
+			logger.info("[DBG]: We are re-sampling!!!")
 		else:
 			assert sample_mv0.shape[0] == cov_beta_chol.shape[0]
 			assert sample_mv0.shape[1] == Nsamples

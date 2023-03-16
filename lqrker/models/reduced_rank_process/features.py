@@ -153,6 +153,7 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 
 		self.dbg_phase_added_to_features = 0.0
 
+		# This flag is for debugging purposes:
 		self.hack_constant_variance = False
 
 
