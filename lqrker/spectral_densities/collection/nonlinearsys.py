@@ -419,3 +419,22 @@ class DubinsCarSpectralDensity(NonLinearSystemSpectralDensity):
 
 		return xyth_next
 
+
+
+class QuadrupedSpectralDensity(NonLinearSystemSpectralDensity):
+
+	def __init__(self, cfg: dict, cfg_sampler: dict, dim: int, integration_method: str, Xtrain=None, Ytrain=None):
+
+		assert integration_method == "integrate_with_data"
+		super().__init__(cfg,cfg_sampler,dim,integration_method,Xtrain,Ytrain)
+
+
+	def _nonlinear_system_fun(self,x):
+		"""
+		x: [Npoints,self.dim_in]
+		"""
+		return self._controlled_quadruped_dynamics(state_vec=x)
+
+	@staticmethod
+	def _controlled_quadruped_dynamics(state_vec):
+		pass
