@@ -48,6 +48,9 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		self.using_deltas = using_deltas
 		self.learn_correlation_noise = learn_correlation_noise
 
+		self.learn_noise_model = cfg.gpmodel.hyperpars.noise_std_process.learn
+		if self.learn_noise_model: logger.info("Learning the model noise ...")
+
 		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures","RRPDiscreteCosineFeaturesVariableIntegrationStep"]
 
 		self.rrgpMO = [None]*self.dim_out
@@ -112,7 +115,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			self.rrgpMO[ii].prior_beta_already_computed = False
 			self.rrgpMO[ii].predictive_beta_already_computed = False
 
-	@tf.function
+	# @tf.function
 	# def update_weights_in_individual_models(self):
 	# 	"""
 	# 	Update weights to all independent GPs
@@ -405,6 +408,10 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		loss_val = 0.0
 		x_traj_pred_all_vec = np.zeros((Nsteps_tot,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
 		loss_val_per_step = np.zeros(Nsteps_tot) # For plotting
+
+		# Nchunks = Nsteps_tot // Nhorizon_rec
+		# pdb.set_trace()
+
 		for tt in range(Nsteps_tot):
 
 			x_traj_real_applied = self.z_vec_real[tt:tt+Nhorizon_rec,:]
@@ -487,6 +494,10 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 				# loss_value,_ = self.get_negative_log_evidence_predictive_full_trajs_in_batch(update_features=epoch>0,plotting_dict=plotting_dict,Nrollouts=self.Nrollouts,from_prior=False)
 				# loss_value = self.get_loss_debug()
 				# loss_value = self.get_loss_debug_2(self.z_vec_real,self.u_traj_real,self.Nhorizon)
+
+				if self.learn_noise_model:
+					if epoch > 0: self.update_features()
+				
 				loss_value, _, _ = self.get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(Nsteps_tot,Nhorizon_rec,sample_fx_once=sample_fx_once)
 
 			# pdb.set_trace()
@@ -504,6 +515,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			grads = tape.gradient(loss_value, self.trainable_weights)
 			if tf.reduce_any([grads_el is None for grads_el in grads]):
 				grads = tf.constant([[0.0],[0.0],[0.0]],dtype=tf.float32)
+				logger.info("[WARNING]: Bad gradients!!!!!!!!!!!!")
 			optimizer.apply_gradients(zip(grads, self.trainable_weights))
 
 			# loss_value = tf.math.reduce_sum(loss_val_per_dim)
