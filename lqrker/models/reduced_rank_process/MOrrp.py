@@ -46,7 +46,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		self.dim_in = dim_in
 		self.dim_out = Ytrain.shape[1]
 		self.using_deltas = using_deltas
-		self.learn_correlation_noise = learn_correlation_noise
+		self.learn_correlation_noise = cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim.learn
+		if self.learn_correlation_noise: logger.info("Learning the correlation matrix ...")
 
 		self.learn_noise_model = cfg.gpmodel.hyperpars.noise_std_process.learn
 		if self.learn_noise_model: logger.info("Learning the model noise ...")
@@ -86,12 +87,9 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 		# Correlate states by means of a noise correlation matrix:
-		dbg_flag = False
 		dim_chol_corr_noise_mat = (self.dim_out * (self.dim_out + 1)) // 2
-		if self.learn_correlation_noise and dbg_flag:
-			self.chol_corr_noise_mat_vectorized = 0.1*tf.ones(dim_chol_corr_noise_mat)
-		elif self.learn_correlation_noise:
-			initializer_corr_noise_mat = tf.keras.initializers.RandomUniform(minval=-cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim_init, maxval=cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim_init)
+		if self.learn_correlation_noise:
+			initializer_corr_noise_mat = tf.keras.initializers.RandomUniform(minval=-cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim.value_init, maxval=cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim.value_init)
 			regularizer_corr_noise_mat = tf.keras.regularizers.L1(l1=0.5) # https://www.tensorflow.org/api_docs/python/tf/keras/regularizers/L1
 			self.chol_corr_noise_mat_vectorized = self.add_weight(	shape=(dim_chol_corr_noise_mat,), initializer=initializer_corr_noise_mat,\
 																	regularizer=regularizer_corr_noise_mat, trainable=True, name="corr_noise_mat")
@@ -156,7 +154,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		return tf.squeeze(noise_var_vec.stack()) # [self.dim_out,]
 
 	def get_chol_corr_noise_mat(self):		
-		return tfp.math.fill_triangular(self.chol_corr_noise_mat_vectorized, upper=False)
+		fac_mul = 0.01
+		return fac_mul*tfp.math.fill_triangular(self.chol_corr_noise_mat_vectorized, upper=False) # https://www.tensorflow.org/probability/api_docs/python/tfp/math/fill_triangular
 
 	# @tf.function
 	def predict_at_locations(self,xpred,from_prior=False):
@@ -412,6 +411,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			x_traj_pred_all_vec = np.zeros((Nchunks,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
 			loss_val_per_step = np.zeros(Nchunks) # For plotting
 		else:
+			Nsteps_tot = min(self.z_vec_real.shape[0] - Nhorizon_rec, Nsteps_tot)
 			tt_vec = np.arange(0,Nsteps_tot,1)
 			x_traj_pred_all_vec = np.zeros((Nsteps_tot,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
 			loss_val_per_step = np.zeros(Nsteps_tot) # For plotting
