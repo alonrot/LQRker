@@ -92,7 +92,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			self.chol_corr_noise_mat_vectorized = 0.1*tf.ones(dim_chol_corr_noise_mat)
 		elif self.learn_correlation_noise:
 			initializer_corr_noise_mat = tf.keras.initializers.RandomUniform(minval=-cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim_init, maxval=cfg.gpmodel.hyperpars.chol_corr_noise_mat_lim_init)
-			regularizer_corr_noise_mat = tf.keras.regularizers.L1(l1=0.01) # https://www.tensorflow.org/api_docs/python/tf/keras/regularizers/L1
+			regularizer_corr_noise_mat = tf.keras.regularizers.L1(l1=0.5) # https://www.tensorflow.org/api_docs/python/tf/keras/regularizers/L1
 			self.chol_corr_noise_mat_vectorized = self.add_weight(	shape=(dim_chol_corr_noise_mat,), initializer=initializer_corr_noise_mat,\
 																	regularizer=regularizer_corr_noise_mat, trainable=True, name="corr_noise_mat")
 
@@ -401,18 +401,23 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 
-	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,sample_fx_once=True):
+	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,sample_fx_once=True,Nchunks=None):
 
 		assert self.z_vec_real is not None, "Call update_dataset_predictive_loss()"
 
-		loss_val = 0.0
-		x_traj_pred_all_vec = np.zeros((Nsteps_tot,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
-		loss_val_per_step = np.zeros(Nsteps_tot) # For plotting
+		if Nchunks is not None:
+			assert Nsteps_tot % Nchunks == 0
+			Nhorizon_rec = Nsteps_tot // Nchunks
+			tt_vec = np.arange(0,Nsteps_tot,Nhorizon_rec)
+			x_traj_pred_all_vec = np.zeros((Nchunks,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
+			loss_val_per_step = np.zeros(Nchunks) # For plotting
+		else:
+			tt_vec = np.arange(0,Nsteps_tot,1)
+			x_traj_pred_all_vec = np.zeros((Nsteps_tot,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
+			loss_val_per_step = np.zeros(Nsteps_tot) # For plotting
 
-		# Nchunks = Nsteps_tot // Nhorizon_rec
-		# pdb.set_trace()
-
-		for tt in range(Nsteps_tot):
+		loss_val = 0.0; cc = 0
+		for tt in tt_vec:
 
 			x_traj_real_applied = self.z_vec_real[tt:tt+Nhorizon_rec,:]
 			x_traj_real_applied_tf = tf.reshape(x_traj_real_applied,(1,Nhorizon_rec,self.dim_out))
@@ -427,9 +432,11 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			loss_val += loss_val_new
 
 			# Save variables for plotting:
-			# Add the last prediction y_traj_pred[:,-1::,:]; so x_traj_pred_all_vec[tt,...] contains [x0,predictions,last_prediction]
-			x_traj_pred_all_vec[tt,...] = np.concatenate([x_traj_pred,y_traj_pred[:,-1::,:]],axis=1) # [Nsteps_tot,Nrollouts,Nhorizon_rec,self.dim_out]
-			loss_val_per_step[tt] = loss_val_new
+			# Add the last prediction y_traj_pred[:,-1::,:]; so x_traj_pred_all_vec[cc,...] contains [x0,predictions,last_prediction]
+			x_traj_pred_all_vec[cc,...] = np.concatenate([x_traj_pred,y_traj_pred[:,-1::,:]],axis=1) # [Nsteps_tot,Nrollouts,Nhorizon_rec,self.dim_out]
+			loss_val_per_step[cc] = loss_val_new
+
+			cc += 1
 
 
 		loss_avg = loss_val / Nsteps_tot # For optimizer
@@ -455,7 +462,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			self.rrgpMO[ii].dbg_flag = True
 
 	# @tf.function
-	def train_MOrrp_predictive(self,Nsteps_tot,Nhorizon_rec,sample_fx_once=True,verbosity=False,save_weights=True,path2save=None):
+	def train_MOrrp_predictive(self,Nsteps_tot,Nhorizon_rec,sample_fx_once=True,verbosity=False,save_weights=True,path2save=None,Nchunks=None):
 		"""
 
 		"""
@@ -498,7 +505,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 				if self.learn_noise_model:
 					if epoch > 0: self.update_features()
 				
-				loss_value, _, _ = self.get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(Nsteps_tot,Nhorizon_rec,sample_fx_once=sample_fx_once)
+				loss_value, _, _ = self.get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(Nsteps_tot,Nhorizon_rec,sample_fx_once=sample_fx_once,Nchunks=Nchunks)
 
 			# pdb.set_trace()
 			# for dd in range(self.dim_out):

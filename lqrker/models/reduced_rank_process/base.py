@@ -87,9 +87,11 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		if cfg.hyperpars.noise_std_process.learn:
-			self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process.value_init)), trainable=True, name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
-		# self.log_noise_std = tf.math.log(cfg.hyperpars.noise_std_process)
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process.value_init)), trainable=cfg.hyperpars.noise_std_process.learn, name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
+		# if cfg.hyperpars.noise_std_process.learn:
+		# else:
+		# 	self.log_noise_std = tf.math.log(cfg.hyperpars.noise_std_process.value_init)
+
 		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
 
 		assert cfg.hyperpars.prior_variance > 0
