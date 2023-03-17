@@ -87,12 +87,13 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# Specify weights:
 		# self.Nfeat = cfg.hyperpars.weights_features.Nfeat
 		# self.log_diag_vals = self.add_weight(shape=(self.Nfeat,), initializer=tf.keras.initializers.Zeros(), trainable=True,name="log_diag_vars")
-		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
+		self.log_noise_std = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.noise_std_process)), trainable=True, name="log_noise_std_dim{0:d}".format(self.dim_out_ind))
 		# self.log_noise_std = tf.math.log(cfg.hyperpars.noise_std_process)
 		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
 
 		assert cfg.hyperpars.prior_variance > 0
-		self.log_prior_variance = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_variance)), trainable=True,name="log_prior_variance_dim{0:d}".format(self.dim_out_ind))
+		# self.log_prior_variance = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_variance)), trainable=True,name="log_prior_variance_dim{0:d}".format(self.dim_out_ind))
+		self.log_prior_variance = tf.math.log(cfg.hyperpars.prior_variance)
 
 		# self.log_prior_mean_factor = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_mean_factor)), trainable=True,name="log_prior_mean_factor_dim{0:d}".format(self.dim_out_ind))
 		self.log_prior_mean_factor = tf.math.log(cfg.hyperpars.prior_mean_factor)
@@ -386,6 +387,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 
 		raise NotImplementedError("Here we need the inverse of the prior; but the equations look like the predictive distribution; double check we're doing the right thing....")
+		raise NotImplementedError("Actually, check M. Deisenroth, Mathematics for Machine Learning, 2020, Sec. 9.3.5")
 
 		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
 		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
