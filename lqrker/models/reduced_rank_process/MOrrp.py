@@ -28,7 +28,7 @@ plt.rc('legend',fontsize=fontsize_labels+2)
 class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 	# @tf.function
-	def __init__(self, dim_in: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain, using_deltas=False, learn_correlation_noise=False, **kwargs):
+	def __init__(self, dim_in: int, cfg: dict, spectral_density: SpectralDensityBase, Xtrain, Ytrain, using_deltas=False, **kwargs):
 
 		"""
 		
@@ -83,6 +83,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		# dbg_fac = 2.5
 		# self.log_noise_std_vec = self.add_weight(shape=(self.dim_out), initializer=tf.keras.initializers.Constant(dbg_fac+tf.math.log(cfg.gpmodel.hyperpars.noise_std_process)), trainable=True,name="log_noise_std_vec")
 		# self.update_weights_in_individual_models()
+
+		self.sample_mv0 = None
 
 
 
@@ -252,7 +254,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			self.rrgpMO[ii].train_model(verbosity)
 
 	# @tf.function
-	def _rollout_model_given_control_sequence_tf(self,x0,Nsamples,Nrollouts,u_traj,traj_length,sort=False,plotting=False,dbg=True,verbo=False,str_progress_bar="",from_prior=False,sample_fx_once=False):
+	def _rollout_model_given_control_sequence_tf(self,x0,Nsamples,Nrollouts,u_traj,traj_length,sort=False,plotting=False,dbg=True,verbo=False,str_progress_bar="",from_prior=False,when2sample="once_per_timestep"):
 		"""
 
 		Pass two initial latent values
@@ -297,12 +299,18 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		state_trajectory_per_rollout = tf.TensorArray(dtype=tf.float32,size=traj_length,dynamic_size=False)
 		state_trajectories_all = tf.TensorArray(dtype=tf.float32,size=Nrollouts,dynamic_size=False) # [Nrollouts,traj_length,self.dim_out]
 
-		if sample_fx_once: # Pre-sample the noise vector that wil characterize the models, one per roll-out. Keep the same sample (i.e., model) accross all calls to this function _rollout_model_given_control_sequence_tf()
-			Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
+		assert when2sample in ["once_per_class_instantiation","once_per_rollout","once_per_timestep"]
+		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
+		if when2sample == "once_per_class_instantiation":
+			if self.sample_mv0 is None: self.sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
+			sample_mv0 = self.sample_mv0
+			# logger.info("Sampling once per class instantiation ...")
+		elif when2sample == "once_per_rollout": # Pre-sample the noise vector that wil characterize the models, one per roll-out. Keep the same sample (i.e., model) accross all calls to this function _rollout_model_given_control_sequence_tf()
 			sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
-		else:
+			logger.info("Sampling once per roll-out; resampling ...")
+		elif when2sample == "once_per_timestep":
 			sample_mv0 = [None]*Nrollouts
-
+			logger.info("Sampling once per timestep; resampling ...")
 
 		if self.learn_correlation_noise:
 			sample_mv0_noise_corr_mat = tf.random.normal(shape=(Nrollouts,traj_length-1,self.dim_out),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
@@ -311,7 +319,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 			self._print_progess_bar(ii=ss,Ntot=Nrollouts,name=str_progress_bar+"Rolling out model ")
 
-			fx = self.get_sample_path_callable(Nsamples=Nsamples,from_prior=from_prior,sample_mv0=sample_mv0[ss]) # resample: We sample the possible models only once, and keep the sample for all the rollouts
+			fx = self.get_sample_path_callable(Nsamples=Nsamples,from_prior=from_prior,sample_mv0=sample_mv0[ss,...]) # resample: We sample the possible models only once, and keep the sample for all the rollouts
 
 			state_curr = x0 # [Npoints,self.dim_in], with Npoints=1
 			state_trajectory_per_rollout = state_trajectory_per_rollout.write(0, tf.reshape(x0,(self.dim_out)))
@@ -339,7 +347,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 	# @tf.function
-	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0,sample_fx_once=False):
+	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0,when2sample="once_per_timestep"):
 		"""
 
 		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1
@@ -360,7 +368,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		# Regardless of self.using_deltas, the function below returns the actual state, not the deltas
 		x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_tf(x0=x0_tf,Nsamples=1,Nrollouts=Nrollouts,u_traj=u_applied_tf,traj_length=-1,
 																				sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior,
-																				sample_fx_once=sample_fx_once)
+																				when2sample=when2sample)
 		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 
@@ -400,7 +408,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 
-	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,sample_fx_once=True,Nchunks=None):
+	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,when2sample,Nchunks=None):
 
 		assert self.z_vec_real is not None, "Call update_dataset_predictive_loss()"
 
@@ -427,7 +435,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 																												Nrollouts=self.Nrollouts,str_progress_bar=str_progress_bar,from_prior=False,
 																												scale_loss_entropy=self.scale_loss_entropy,
 																												scale_prior_regularizer=self.scale_prior_regularizer,
-																												sample_fx_once=sample_fx_once)
+																												when2sample=when2sample)
 
 			loss_val += loss_val_new
 
@@ -462,7 +470,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			self.rrgpMO[ii].dbg_flag = True
 
 	# @tf.function
-	def train_MOrrp_predictive(self,Nsteps_tot,Nhorizon_rec,sample_fx_once=True,verbosity=False,save_weights=True,path2save=None,Nchunks=None):
+	def train_MOrrp_predictive(self,Nsteps_tot,Nhorizon_rec,when2sample,verbosity=False,save_weights=True,path2save=None,Nchunks=None):
 		"""
 
 		"""
@@ -505,7 +513,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 				if self.learn_noise_model:
 					if epoch > 0: self.update_features()
 				
-				loss_value, _, _ = self.get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(Nsteps_tot,Nhorizon_rec,sample_fx_once=sample_fx_once,Nchunks=Nchunks)
+				loss_value, _, _ = self.get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(Nsteps_tot,Nhorizon_rec,when2sample=when2sample,Nchunks=Nchunks)
 
 			# pdb.set_trace()
 			# for dd in range(self.dim_out):

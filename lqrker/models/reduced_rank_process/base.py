@@ -608,6 +608,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		if self.predictive_beta_already_computed:
 			# logger.info("predictive_beta_distribution doesn't need to be recomputed because the dataset was never updated")
 			return self.mean_beta_predictive, self.chol_cov_beta_predictive
+		else:
+			logger.info("Re-computing predictions ...")
 
 		# Get mean:
 		PhiXY_plus_mean_term = tf.transpose(self.PhiX) @ self.Y + self.get_Sigma_weights_inv_times_noise_var() @ self.get_prior_mean()
