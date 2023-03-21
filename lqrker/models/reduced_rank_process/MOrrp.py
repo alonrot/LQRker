@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 import pickle
 from lqrker.utils.common import CommonUtils
+import time
 
 from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures, RRPDiscreteCosineFeaturesVariableIntegrationStep
 from lqrker.spectral_densities.base import SpectralDensityBase
@@ -24,10 +25,6 @@ matplotlib.rc('ytick', labelsize=fontsize_labels)
 matplotlib.rc('text', usetex=True)
 matplotlib.rc('font',**{'family':'serif','serif':['Computer Modern Roman']})
 plt.rc('legend',fontsize=fontsize_labels+2)
-
-# export PYTHONPATH=$PYTHONPATH:/Users/alonrot/work/code_projects_WIP/ood_project/ood/predictions_module/build
-from predictions_interface import Predictions
-
 
 
 class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
@@ -472,6 +469,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			str_progress_bar = "Prediction with horizon = {0:d}; tt: {1:d} / {2:d} | ".format(Nhorizon_rec,tt+1,Nsteps_tot)
 			if predictions_module is not None: logger.info("tt: {0:d} / {1:d}".format(tt,len(tt_vec)))
 
+			time_start = time.time()
+
 			loss_val_new, x_traj_pred, y_traj_pred = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
 																												Nrollouts=self.Nrollouts,str_progress_bar=str_progress_bar,from_prior=False,
 																												scale_loss_entropy=self.scale_loss_entropy,
@@ -479,6 +478,8 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 																												when2sample=when2sample,
 																												predictions_module=predictions_module)
 
+			time_el = time.time() - time_start
+			logger.info("time_el: {0:2.2f} [sec]".format(time_el))
 
 			loss_val += loss_val_new
 
@@ -697,65 +698,6 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		logger.info("Done saving data!")
 
 		return tensors4predictions
-
-
-	def compute_fast_predictions_from_saved_tensors(self,path2data,x0,u_traj,Nsteps_tot,Nrollouts):
-		"""
-		
-		x0: [1,self.dim_x]
-		u_traj: [Nhor,self.dim_u]
-
-		"""
-
-		raise NotImplementedError("Probably better to just do it in c++")
-
-		path2data = "/Users/alonrot/work/code_projects_WIP/ood_project/ood/experiments/dubins_car_receding/tensors4fast_prediction_with_MOrrp_model"
-		file_name = "2023_03_16_19_55_36_tensors.pickle"
-		path2data_full = "{0:s}/{1:s}".format(path2data,file_name)
-
-		logger.info("Loading {0:s} ...".format(path2data_full))
-		file = open(path2data_full, 'rb')
-		tensors4predictions = pickle.load(file)
-		file.close()
-
-		S_samples_all_dim = tensors4predictions["S_samples_all_dim"]
-		phi_samples_all_dim = tensors4predictions["phi_samples_all_dim"]
-		W_samples_all_dim = tensors4predictions["W_samples_all_dim"]
-		dw_samples_all_dim = tensors4predictions["dw_samples_all_dim"]
-		mean_beta_pred_all_dim = tensors4predictions["mean_beta_pred_all_dim"]
-		cov_beta_pred_chol_all_dim = tensors4predictions["cov_beta_pred_chol_all_dim"]
-		chol_corr_noise_mat = tensors4predictions["chol_corr_noise_mat"]
-		which_features = tensors4predictions["which_features"]
-		feat_mat = tensors4predictions["feat_mat"]
-
-		Nhorizon_rec = u_traj.shape[0] + 1
-
-		dim_x = x0.shape[1]
-
-		x_traj_pred_all_vec = np.zeros((Nsteps_tot,Nrollouts,Nhorizon_rec,dim_x)) # For plotting
-		for tt in range(Nsteps_tot):
-
-			for rr in range(Nrollouts):
-
-				for hh in range(Nhorizon_rec):
-
-					for dd in dim_x:
-						# Get state
-						pass
-
-					# Roll out entire model for this specific model instance rr
-					pass
-					# feat_mat(X=x_traj_pred_all_vec[tt,rr,],W_samples,phi_samples)
-
-				# Repeat for all roll outs
-				pass
-				# If we pre-sample the model instances, maybe this explicit loop can be avoided
-
-			# Repeat for all time steps
-			pass
-			# Compute here the ELBO loss if desired
-
-		return x_traj_pred_all_vec
 
 	def _weights2str(self,trainable_weights):
 		
