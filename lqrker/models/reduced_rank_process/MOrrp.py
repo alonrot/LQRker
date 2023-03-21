@@ -9,6 +9,7 @@ import matplotlib.cm as cm
 import sys
 from datetime import datetime
 import pickle
+from lqrker.utils.common import CommonUtils
 
 from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures, RRPDiscreteCosineFeaturesVariableIntegrationStep
 from lqrker.spectral_densities.base import SpectralDensityBase
@@ -23,6 +24,10 @@ matplotlib.rc('ytick', labelsize=fontsize_labels)
 matplotlib.rc('text', usetex=True)
 matplotlib.rc('font',**{'family':'serif','serif':['Computer Modern Roman']})
 plt.rc('legend',fontsize=fontsize_labels+2)
+
+# export PYTHONPATH=$PYTHONPATH:/Users/alonrot/work/code_projects_WIP/ood_project/ood/predictions_module/build
+from predictions_interface import Predictions
+
 
 
 class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
@@ -85,8 +90,6 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		# self.update_weights_in_individual_models()
 
 		self.sample_mv0 = None
-
-
 
 		# Correlate states by means of a noise correlation matrix:
 		dim_chol_corr_noise_mat = (self.dim_out * (self.dim_out + 1)) // 2
@@ -304,7 +307,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		if when2sample == "once_per_class_instantiation":
 			if self.sample_mv0 is None: self.sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
 			sample_mv0 = self.sample_mv0
-			# logger.info("Sampling once per class instantiation ...")
+			logger.info("Sampling once per class instantiation ...")
 		elif when2sample == "once_per_rollout": # Pre-sample the noise vector that wil characterize the models, one per roll-out. Keep the same sample (i.e., model) accross all calls to this function _rollout_model_given_control_sequence_tf()
 			sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
 			logger.info("Sampling once per roll-out; resampling ...")
@@ -347,7 +350,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 	# @tf.function
-	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0,when2sample="once_per_timestep"):
+	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0,when2sample="once_per_timestep",predictions_module=None):
 		"""
 
 		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1
@@ -362,13 +365,49 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		log_noise_std_vec = self.get_log_noise_std_vec()
 		noise_var_vec = self.get_noise_var_vec()
 
-		# Tensorflow:
-		x0_tf = tf.convert_to_tensor(value=Xstate_real[0,0:1,:],dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
-		u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
-		# Regardless of self.using_deltas, the function below returns the actual state, not the deltas
-		x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_tf(x0=x0_tf,Nsamples=1,Nrollouts=Nrollouts,u_traj=u_applied_tf,traj_length=-1,
-																				sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior,
-																				when2sample=when2sample)
+
+		# predictions_module = None
+		# if predictions_module is not None or True:
+		if predictions_module is not None:
+
+
+			x0_tf = tf.convert_to_tensor(value=Xstate_real[0,0:1,:],dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
+			u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
+
+			xtraj_sampled_all_rollouts_list = predictions_module.run_all_rollouts_from_current_state(x0_tf.numpy().astype(dtype=np.float64),u_applied_tf.numpy().astype(dtype=np.float64))
+
+			xtraj_sampled_all_rollouts = np.stack(xtraj_sampled_all_rollouts_list,axis=0)
+
+			x_traj_pred = xtraj_sampled_all_rollouts[:,0:-2,:]
+			y_traj_pred = xtraj_sampled_all_rollouts[:,1:-1,:]
+
+			x_traj_pred = tf.convert_to_tensor(value=x_traj_pred,dtype=tf.float32)
+			y_traj_pred = tf.convert_to_tensor(value=y_traj_pred,dtype=tf.float32)
+
+			
+		else:
+
+			# Tensorflow:
+			x0_tf = tf.convert_to_tensor(value=Xstate_real[0,0:1,:],dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
+			u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
+			# Regardless of self.using_deltas, the function below returns the actual state, not the deltas
+			x_traj_pred, y_traj_pred = self._rollout_model_given_control_sequence_tf(x0=x0_tf,Nsamples=1,Nrollouts=Nrollouts,u_traj=u_applied_tf,traj_length=-1,
+																					sort=False,plotting=False,str_progress_bar=str_progress_bar,from_prior=from_prior,
+																					when2sample=when2sample)
+
+		
+		# pdb.set_trace()
+
+		# hdl_fig_pred, hdl_splots_pred = plt.subplots(1,figsize=(12,8),sharex=True)
+		# hdl_fig_pred.suptitle("Predictions ...", fontsize=16)
+
+		# ind_rollout = 9
+		# hdl_splots_pred.plot(x_traj_pred[ind_rollout,:,0],x_traj_pred[ind_rollout,:,1])
+		# hdl_splots_pred.plot(x_traj_pred_cpp[ind_rollout,:,0],x_traj_pred_cpp[ind_rollout,:,1])
+
+		# plt.show(block=True)
+
+
 		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
 
@@ -408,7 +447,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 
 
-	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,when2sample,Nchunks=None):
+	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,when2sample,Nchunks=None,predictions_module=None):
 
 		assert self.z_vec_real is not None, "Call update_dataset_predictive_loss()"
 
@@ -431,11 +470,15 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			x_traj_real_applied_tf = tf.reshape(x_traj_real_applied,(1,Nhorizon_rec,self.dim_out))
 			u_applied_tf = self.u_traj_real[tt:tt+Nhorizon_rec,:]
 			str_progress_bar = "Prediction with horizon = {0:d}; tt: {1:d} / {2:d} | ".format(Nhorizon_rec,tt+1,Nsteps_tot)
+			if predictions_module is not None: logger.info("tt: {0:d} / {1:d}".format(tt,len(tt_vec)))
+
 			loss_val_new, x_traj_pred, y_traj_pred = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
 																												Nrollouts=self.Nrollouts,str_progress_bar=str_progress_bar,from_prior=False,
 																												scale_loss_entropy=self.scale_loss_entropy,
 																												scale_prior_regularizer=self.scale_prior_regularizer,
-																												when2sample=when2sample)
+																												when2sample=when2sample,
+																												predictions_module=predictions_module)
+
 
 			loss_val += loss_val_new
 
@@ -463,6 +506,11 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		assert scale_prior_regularizer > 0.0
 		self.scale_prior_regularizer = scale_prior_regularizer
 		self.Nrollouts = Nrollouts
+
+		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
+		self.sample_mv0 = CommonUtils.sample_standard_multivariate_normal_inside_confidence_set(Nsamples=Nrollouts,Nels=Nfeat,min_prob_chi2=0.90) # [Nrollouts,Nfeat,Nsamples=1]
+		assert self.sample_mv0.shape[0] == Nrollouts
+		self.sample_mv0 = tf.expand_dims(self.sample_mv0,axis=2)
 
 	def set_dbg_flag(self,flag=True):
 
@@ -585,18 +633,20 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		Nomegas = self.rrgpMO[0].S_samples_vec.shape[0]
 
-		S_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
-		phi_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		# S_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		phi_samples_all_dim = np.zeros((self.dim_out,Nomegas))
 		W_samples_all_dim = np.zeros((self.dim_out,Nomegas,self.dim_in))
-		dw_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
-		mean_beta_pred_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		# dw_samples_all_dim = np.zeros((self.dim_out,Nomegas,1))
+		mean_beta_pred_all_dim = np.zeros((self.dim_out,Nomegas))
 		cov_beta_pred_chol_all_dim = np.zeros((self.dim_out,Nomegas,Nomegas))
 		for ii in range(self.dim_out):
-			S_samples_all_dim[ii,...] = self.rrgpMO[ii].S_samples_vec # [Nomegas,1]
-			phi_samples_all_dim[ii,...] = self.rrgpMO[ii].phi_samples_vec # [Nomegas,1]
+			# S_samples_all_dim[ii,...] = self.rrgpMO[ii].S_samples_vec # [Nomegas,1]
+			phi_samples_all_dim[ii,...] = self.rrgpMO[ii].phi_samples_vec[:,0] # [Nomegas,1]
 			W_samples_all_dim[ii,...] = self.rrgpMO[ii].W_samples # [Nomegas,self.dim_in]
-			dw_samples_all_dim[ii,...] = self.rrgpMO[ii].dw_vec # [Nomegas,1]
-			mean_beta_pred_all_dim[ii,...], cov_beta_pred_chol_all_dim[ii,...] = self.rrgpMO[ii].predict_beta(from_prior=False)
+			# dw_samples_all_dim[ii,...] = self.rrgpMO[ii].dw_vec # [Nomegas,1]
+			mean_beta_pred_single_dim_aux, cov_beta_pred_chol_single_dim_aux = self.rrgpMO[ii].predict_beta(from_prior=False)
+			mean_beta_pred_all_dim[ii,:], cov_beta_pred_chol_all_dim[ii,...] = mean_beta_pred_single_dim_aux[:,0], cov_beta_pred_chol_single_dim_aux
+
 
 		if self.learn_correlation_noise:
 			chol_corr_noise_mat = self.get_chol_corr_noise_mat()
@@ -619,21 +669,26 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		# feat_mat_tf = tf.function(feat_mat)
 
-		feat_mat_tf = None
+		# tensors4predictions = dict(	S_samples_all_dim=S_samples_all_dim,
+		# 							phi_samples_all_dim=phi_samples_all_dim,
+		# 							W_samples_all_dim=W_samples_all_dim,
+		# 							dw_samples_all_dim=dw_samples_all_dim,
+		# 							mean_beta_pred_all_dim=mean_beta_pred_all_dim,
+		# 							cov_beta_pred_chol_all_dim=cov_beta_pred_chol_all_dim,
+		# 							chol_corr_noise_mat=chol_corr_noise_mat,
+		# 							which_features="RRPDiscreteCosineFeaturesVariableIntegrationStep",
+		# 							feat_mat=feat_mat_tf)
 
-		tensors4predictions = dict(	S_samples_all_dim=S_samples_all_dim,
-									phi_samples_all_dim=phi_samples_all_dim,
-									W_samples_all_dim=W_samples_all_dim,
-									dw_samples_all_dim=dw_samples_all_dim,
-									mean_beta_pred_all_dim=mean_beta_pred_all_dim,
-									cov_beta_pred_chol_all_dim=cov_beta_pred_chol_all_dim,
-									chol_corr_noise_mat=chol_corr_noise_mat,
-									which_features="RRPDiscreteCosineFeaturesVariableIntegrationStep",
-									feat_mat=feat_mat_tf)
+		tensors4predictions = dict(	dim_in=self.dim_in,
+									dim_out=self.dim_out,
+									phi_samples_all_dim=phi_samples_all_dim.astype(np.float64),
+									W_samples_all_dim=W_samples_all_dim.astype(np.float64),
+									mean_beta_pred_all_dim=mean_beta_pred_all_dim.astype(np.float64),
+									cov_beta_pred_chol_all_dim=cov_beta_pred_chol_all_dim.astype(np.float64))
 
 
 		name_file_data = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-		name_file = "{0:s}_tensors.pickle".format(name_file_data)
+		name_file = "{0:s}_arrays_for_predictions.pickle".format(name_file_data)
 		path2save_full = "{0:s}/{1:s}".format(path2save,name_file)
 		logger.info("Saving data at {0:s} ...".format(path2save_full))
 		file = open(path2save_full, 'wb')
