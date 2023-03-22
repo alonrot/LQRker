@@ -1,4 +1,4 @@
-from .collection.nonlinearsys import KinkSpectralDensity, ParaboloidSpectralDensity, NoNameSpectralDensity, KinkSharpSpectralDensity, VanDerPolSpectralDensity, DubinsCarSpectralDensity, QuadrupedSpectralDensity
+from .collection.nonlinearsys import KinkSpectralDensity, ParaboloidSpectralDensity, NoNameSpectralDensity, KinkSharpSpectralDensity, VanDerPolSpectralDensity, DubinsCarSpectralDensity, QuadrupedSpectralDensity, ExponentiallySuppressedPolynomialsFromData
 from .collection.standard import SquaredExponentialSpectralDensity, MaternSpectralDensity
 
 

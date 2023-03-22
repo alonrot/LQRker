@@ -443,6 +443,75 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		return loss_tot, x_traj_pred, y_traj_pred
 
 
+	def get_elbo_loss_predictions(self,x_traj_pred,y_traj_pred,Xstate_real,u_applied_tf,log_noise_std_vec,sigma_prior,scale_loss_entropy,scale_prior_regularizer):
+
+
+		raise NotImplementedError("WIP: Refactor it into a loss/ package")
+
+		# pdb.set_trace()
+
+		# hdl_fig_pred, hdl_splots_pred = plt.subplots(1,figsize=(12,8),sharex=True)
+		# hdl_fig_pred.suptitle("Predictions ...", fontsize=16)
+
+		# ind_rollout = 9
+		# hdl_splots_pred.plot(x_traj_pred[ind_rollout,:,0],x_traj_pred[ind_rollout,:,1])
+		# hdl_splots_pred.plot(x_traj_pred_cpp[ind_rollout,:,0],x_traj_pred_cpp[ind_rollout,:,1])
+
+		# plt.show(block=True)
+
+		"""
+		
+		Inputs:
+
+		x_traj_pred: [Nrollouts,traj_length-1,self.dim_out] -> state predictions, extracted as state_trajectories_all[:,0:-1,:]    	|| state_trajectories_all: [Nrollouts,traj_length,self.dim_out]
+		y_traj_pred: [Nrollouts,traj_length-1,self.dim_out] -> next state predictions, extracted as state_trajectories_all[:,1::,:] || state_trajectories_all: [Nrollouts,traj_length,self.dim_out]
+		Xstate_real: [Nrollouts,traj_length,self.dim_out] -> real state observations (test/training data)
+		u_applied_tf: [traj_length-1,dim_u]
+		log_noise_std_vec: vector of log-std of the noise, one per channel
+		"""
+
+		dim_out = y_traj_pred.shape[1]
+
+		# Compute the error excluding the initial state because Xstate_real[:,0,:] = x_traj_pred[:,0,:], which yields zero error and diesn't contribute
+		noise_var_vec = tf.math.exp(log_noise_std_vec)
+		error = (y_traj_pred - Xstate_real[:,1::,:])**2 # [Nrollouts,traj_length-1,self.dim_out]
+		error_weighted = error / tf.reshape(noise_var_vec,(1,1,dim_out))
+
+		# Loss || Averaged log-likelihood:
+		term_data_fit_vec = -0.5*tf.math.reduce_sum(error_weighted) # [,]
+		term_model_complexity_vec = -tf.math.reduce_sum(log_noise_std_vec)*y_traj_pred.shape[0]*y_traj_pred.shape[1] # [,]
+		loss_log_evidence = -(term_data_fit_vec + term_model_complexity_vec) # [,]
+		loss_log_evidence_avg = loss_log_evidence / (y_traj_pred.shape[0]*y_traj_pred.shape[1])
+
+		# Loss || Averaged entropy:
+		# We need the predictive variance for each state
+		# xpred: [Npoints,self.dim]
+		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		# Concatenate the predictions with their respective control input. We need them in order to compute the predictive variance:
+		u_applied_tf_tiled = tf.tile(u_applied_tf[0:-1],[x_traj_pred.shape[0],1])
+		x_traj_pred_tiled = tf.reshape(x_traj_pred,(-1,x_traj_pred.shape[2]))
+		x_traj_pred_with_u_applied = tf.concat((x_traj_pred_tiled,u_applied_tf_tiled),axis=1)
+		_, MO_std_pred = self.predict_at_locations(xpred=x_traj_pred_with_u_applied)
+		entropy_term = tf.reduce_mean(tf.math.log(MO_std_pred)) # Why isn't it -log()? Because the minus sign apepars only in the definition of entropy. After developing the terms, it remains +log(2*pi*e*var); this makes sense: the larger var is, the higher the log and the higher the entropy
+		loss_entropy = -entropy_term # We flip the sign becase in ELBO we are maximizing entropy_term
+
+		# Prior || Averaged minus cross entropy (penalize distance between consecutive points)
+		# x_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		# y_traj_pred: [Nrollouts,traj_length-1,self.dim_out]
+		sigma_prior = 0.1
+		prior_regularizer_term = -((y_traj_pred - x_traj_pred) / sigma_prior)**2
+		loss_prior_regularizer_term = -tf.reduce_mean(prior_regularizer_term)
+
+		# Total loss:
+		loss_tot = loss_log_evidence_avg + scale_loss_entropy*loss_entropy + scale_prior_regularizer*loss_prior_regularizer_term
+
+		return loss_tot, x_traj_pred, y_traj_pred
+
+
+
+
+
+
 
 	def get_elbo_loss_for_predictions_in_full_trajectory_with_certain_horizon(self,Nsteps_tot,Nhorizon_rec,when2sample,Nchunks=None,predictions_module=None):
 
