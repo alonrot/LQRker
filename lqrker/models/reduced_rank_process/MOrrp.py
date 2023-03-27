@@ -536,7 +536,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			x_traj_real_applied_tf = tf.reshape(x_traj_real_applied,(1,Nhorizon_rec,self.dim_out))
 			u_applied_tf = self.u_traj_real[tt:tt+Nhorizon_rec,:]
 			str_progress_bar = "Prediction with horizon = {0:d}; tt: {1:d} / {2:d} | ".format(Nhorizon_rec,tt+1,Nsteps_tot)
-			if predictions_module is not None: logger.info("tt: {0:d} / {1:d}".format(tt,len(tt_vec)))
+			
 
 			time_start = time.time()
 
@@ -548,7 +548,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 																												predictions_module=predictions_module)
 
 			time_el = time.time() - time_start
-			logger.info("time_el: {0:2.2f} [sec]".format(time_el))
+			if predictions_module is not None: logger.info("tt: {0:d} / {1:d} || time_el: {2:2.2f} [sec] ".format(tt,len(tt_vec),time_el))
 
 			loss_val += loss_val_new
 
