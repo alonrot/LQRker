@@ -302,7 +302,9 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		assert when2sample in ["once_per_class_instantiation","once_per_rollout","once_per_timestep"]
 		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
 		if when2sample == "once_per_class_instantiation":
-			if self.sample_mv0 is None: self.sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
+			if self.sample_mv0 is None: 
+				self.sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
+				raise NotImplementedError("We shoudl not enter here because self.update_dataset_predictive_loss() is assumed to be called first")
 			sample_mv0 = self.sample_mv0
 			logger.info("Sampling once per class instantiation ...")
 		elif when2sample == "once_per_rollout": # Pre-sample the noise vector that wil characterize the models, one per roll-out. Keep the same sample (i.e., model) accross all calls to this function _rollout_model_given_control_sequence_tf()
@@ -578,7 +580,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		self.Nrollouts = Nrollouts
 
 		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
-		self.sample_mv0 = CommonUtils.sample_standard_multivariate_normal_inside_confidence_set(Nsamples=Nrollouts,Nels=Nfeat,min_prob_chi2=0.90) # [Nrollouts,Nfeat,Nsamples=1]
+		self.sample_mv0 = CommonUtils.sample_standard_multivariate_normal_inside_confidence_set(Nsamples=Nrollouts,Nels=Nfeat,min_prob_chi2=0.80) # [Nrollouts,Nfeat,Nsamples=1]
 		assert self.sample_mv0.shape[0] == Nrollouts
 		self.sample_mv0 = tf.expand_dims(self.sample_mv0,axis=2)
 
