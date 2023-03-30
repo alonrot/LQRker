@@ -98,6 +98,13 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 		self.update_model(X=Xtrain,Y=Ytrain)
 
+
+		# Debugging long term predictions:
+		self.loss_elbo_evidence_avg_vec = None
+		self.loss_elbo_entropy_vec = None
+		self.loss_prior_regularizer_vec = None
+
+
 	# @tf.function
 	def update_model(self,X,Y):
 
@@ -369,7 +376,6 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		# if predictions_module is not None or True:
 		if predictions_module is not None:
 
-
 			x0_tf = tf.convert_to_tensor(value=Xstate_real[0,0:1,:],dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 			u_applied_tf = tf.convert_to_tensor(value=u_traj_real,dtype=tf.float32) # [Npoints,self.dim_in], with Npoints=1
 
@@ -439,10 +445,17 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		prior_regularizer_term = -((y_traj_pred - x_traj_pred) / sigma_prior)**2
 		loss_prior_regularizer_term = -tf.reduce_mean(prior_regularizer_term)
 
+		logger.info("loss_log_evidence_avg: {0:f}".format(loss_log_evidence_avg))
+		logger.info("loss_entropy: {0:f}".format(loss_entropy))
+		logger.info("loss_prior_regularizer_term: {0:f}".format(loss_prior_regularizer_term))
+
 		# Total loss:
 		loss_tot = loss_log_evidence_avg + scale_loss_entropy*loss_entropy + scale_prior_regularizer*loss_prior_regularizer_term
 
-		return loss_tot, x_traj_pred, y_traj_pred
+		# DBG:
+		dict_dbg = dict(loss_log_evidence_avg=loss_log_evidence_avg,loss_entropy=loss_entropy,loss_prior_regularizer_term=loss_prior_regularizer_term)
+
+		return loss_tot, x_traj_pred, y_traj_pred, dict_dbg
 
 
 	def get_elbo_loss_predictions(self,x_traj_pred,y_traj_pred,Xstate_real,u_applied_tf,log_noise_std_vec,sigma_prior,scale_loss_entropy,scale_prior_regularizer):
@@ -531,6 +544,11 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			x_traj_pred_all_vec = np.zeros((Nsteps_tot,self.Nrollouts,Nhorizon_rec,self.dim_out)) # For plotting
 			loss_val_per_step = np.zeros(Nsteps_tot) # For plotting
 
+		# DBG:
+		self.loss_elbo_evidence_avg_vec = np.zeros(len(tt_vec))
+		self.loss_elbo_entropy_vec = np.zeros(len(tt_vec))
+		self.loss_prior_regularizer_vec = np.zeros(len(tt_vec))
+
 		loss_val = 0.0; cc = 0
 		for tt in tt_vec:
 
@@ -542,7 +560,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 
 			time_start = time.time()
 
-			loss_val_new, x_traj_pred, y_traj_pred = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
+			loss_val_new, x_traj_pred, y_traj_pred, dict_dbg = self._get_negative_log_evidence_and_predictive_trajectory_chunk(x_traj_real_applied_tf,u_applied_tf,Nsamples=1,
 																												Nrollouts=self.Nrollouts,str_progress_bar=str_progress_bar,from_prior=False,
 																												scale_loss_entropy=self.scale_loss_entropy,
 																												scale_prior_regularizer=self.scale_prior_regularizer,
@@ -560,6 +578,11 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			loss_val_per_step[cc] = loss_val_new
 
 			cc += 1
+
+			# Dbg:
+			self.loss_elbo_evidence_avg_vec[tt] = dict_dbg["loss_log_evidence_avg"]
+			self.loss_elbo_entropy_vec[tt] = dict_dbg["loss_entropy"]
+			self.loss_prior_regularizer_vec[tt] = dict_dbg["loss_prior_regularizer_term"]
 
 
 		loss_avg = loss_val / Nsteps_tot # For optimizer
