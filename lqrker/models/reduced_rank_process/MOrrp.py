@@ -605,7 +605,10 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
 		self.sample_mv0 = CommonUtils.sample_standard_multivariate_normal_inside_confidence_set(Nsamples=Nrollouts,Nels=Nfeat,min_prob_chi2=0.80) # [Nrollouts,Nfeat,Nsamples=1]
 		assert self.sample_mv0.shape[0] == Nrollouts
+		logger.info("Setting the first rollout to the mean")
+		self.sample_mv0[0,:] = 0.0
 		self.sample_mv0 = tf.expand_dims(self.sample_mv0,axis=2)
+
 
 	def set_dbg_flag(self,flag=True):
 
