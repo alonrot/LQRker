@@ -579,8 +579,11 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			if (epoch+1) % 10 == 0:
 				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.Nepochs, float(loss_value)))
 
-			if loss_value <= self.stop_loss_val:
-				done = True
+			try:
+				if loss_value <= self.stop_loss_val:
+					done = True
+			except:
+				pdb.set_trace()
 			
 			if loss_value < loss_value_curr:
 				trainable_weights_best = self.get_weights()
