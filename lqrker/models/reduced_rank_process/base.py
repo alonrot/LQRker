@@ -570,7 +570,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			grads_nan = [grad_el is None for grad_el in grads]
 			if np.any(np.array(grads_nan)):
 				logger.info("(!!!!) Gradients are NONE!!!!!!!! -> Setting random gradient direction ...")
-				pdb.set_trace()
+				# pdb.set_trace()
 				grads = 0.01*tf.random.normal((len(self.trainable_weights),1))
 
 			# Apply gradients:
