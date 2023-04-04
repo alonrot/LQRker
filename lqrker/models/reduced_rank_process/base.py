@@ -377,7 +377,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		logger.info("model_complexity: {0:f}".format(model_complexity.numpy()[0]))
 
 		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
-			loss_val = tf.constant([self.loss4nancases])
+			loss_val = tf.constant([self.loss4nancases],dtype=tf.float32)
 
 		logger.info("loss_val: {0:f}".format(loss_val.numpy().reshape((1))[0]))
 
@@ -579,11 +579,11 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			if (epoch+1) % 10 == 0:
 				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.Nepochs, float(loss_value)))
 
-			try:
-				if loss_value <= self.stop_loss_val:
-					done = True
-			except:
-				pdb.set_trace()
+			if loss_value <= self.stop_loss_val:
+				done = True
+			# try:
+			# except:
+				# pdb.set_trace()
 			
 			if loss_value < loss_value_curr:
 				trainable_weights_best = self.get_weights()
