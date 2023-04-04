@@ -156,7 +156,6 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 		# This flag is for debugging purposes:
 		self.hack_constant_variance = False
 
-
 	def get_features_mat(self,X):
 		"""
 

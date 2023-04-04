@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.common import CommonUtils
+import time
 
 # import warnings
 # warnings.filterwarnings("error")
@@ -95,8 +96,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# self.log_L = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.L_init)), trainable=True,name="log_L")
 
 		assert cfg.hyperpars.prior_variance > 0
-		# self.log_prior_variance = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_variance)), trainable=True,name="log_prior_variance_dim{0:d}".format(self.dim_out_ind))
-		self.log_prior_variance = tf.math.log(cfg.hyperpars.prior_variance)
+		self.log_prior_variance = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_variance)), trainable=cfg.hyperpars.noise_std_process.learn,name="log_prior_variance_dim{0:d}".format(self.dim_out_ind))
+		# self.log_prior_variance = tf.math.log(cfg.hyperpars.prior_variance)
 
 		# self.log_prior_mean_factor = self.add_weight(shape=(1,), initializer=tf.keras.initializers.Constant(tf.math.log(cfg.hyperpars.prior_mean_factor)), trainable=True,name="log_prior_mean_factor_dim{0:d}".format(self.dim_out_ind))
 		self.log_prior_mean_factor = tf.math.log(cfg.hyperpars.prior_mean_factor)
@@ -104,8 +105,9 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		# Learning parameters:
 		self.learning_rate = cfg.learning.learning_rate
-		self.epochs = cfg.learning.epochs
+		self.Nepochs = cfg.learning.epochs
 		self.stop_loss_val = cfg.learning.stopping_condition.loss_val
+		self.loss4nancases = cfg.learning.loss4nancases
 
 		# No data case:
 		self.X = None
@@ -118,6 +120,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		self.chol_cov_beta_predictive = None
 		self.mean_beta_prior = None
 		self.chol_cov_beta_prior = None
+
+		self.mvn_evidence = None
 
 		# ----------------------------------------------------------------------------------------------------------
 		# Parameters only relevant to child classes (old version)
@@ -303,35 +307,121 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 			logger.info(str_info)
 
+	def get_MLII_loss_gaussian_inefficient(self):
+
+		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		mean_beta_prior, chol_cov_beta_prior = self.get_prior_beta_distribution() # This sets self.prior_beta_already_computed=True
+		auxx = chol_cov_beta_prior @ tf.transpose(self.PhiX) # assume chol_cov_beta_prior is diagonal
+		mean_prior = self.PhiX @ mean_beta_prior # [Npoints,1]
+		covariance_matrix = tf.transpose(auxx) @ auxx + (self.get_noise_var() + 1e-6) * tf.eye(self.PhiX.shape[0])
+		if self.mvn_evidence is None:
+			self.mvn_evidence = tfp.distributions.MultivariateNormalFullCovariance(	loc=mean_prior[:,0], covariance_matrix=covariance_matrix, validate_args=False, allow_nan_stats=False)
+		else:
+			self.mvn_evidence.mean = mean_prior[:,0]
+			self.mvn_evidence.covariance_matrix = covariance_matrix
+
+		logger.info("Computing loss_val_ineff...")
+		try:
+			neg_log_marg_lik = -self.mvn_evidence.log_prob(self.Y[:,0]) # This should be a scalar [1,]
+			logger.info("loss_val_ineff: {0:f}".format(neg_log_marg_lik))
+		except:
+			neg_log_marg_lik = self.loss4nancases # No sign flip here; assumed that this is already a loss in the config file
+			logger.info(" (failed!!) loss_val_ineff: {0:f}".format(neg_log_marg_lik))
+
+		return neg_log_marg_lik
+
+
+	# @tf.function
+	def get_MLII_loss_gaussian(self):
+		"""
+	
+		Following M. Deisenroth, Mathematics for Machine Learning, 2020, Sec. 9.3.5
+		"""
+
+		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+		# self.prior_beta_already_computed = False
+		# mean_beta_prior, chol_cov_beta_prior = self.get_prior_beta_distribution() # This sets self.prior_beta_already_computed=True
+		# PhiX = self.get_features_mat(self.X) # [Npoints,Nfeat]
+
+		# Compute data fit:
+		logger.info("Computing data fit term...")
+		Kinv, Kinv_no_noise = self.get_prior_cov_inverse() # Needs self.Lchol, updated inside self._update_features()
+		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
+		err_obs = self.Y - mean_prior
+		data_fit = -0.5*tf.transpose(err_obs) @ (Kinv @ err_obs)
+
+		if tf.math.is_nan(data_fit) or tf.math.is_inf(data_fit):
+			logger.info(" *** data_fit is nan/inf (!) *** ")
+			logger.info(" *** data_fit is nan/inf (!) *** ")
+			logger.info(" *** data_fit is nan/inf (!) *** ")
+
+		# Compute model complexity:
+		logger.info("Computing model complexity term...")
+		"""
+		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
+		"""
+		# model_complexity = 0.5*tf.linalg.logdet(Kinv)
+		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv_no_noise) # This operation is O(N^3), where N is the number of datapoints
+		# NOTE: no need to put a minus sign in front, because we're computing the log of the inverse
+		
+		if tf.math.is_nan(model_complexity) or tf.math.is_inf(model_complexity):
+			logger.info(" *** model_complexity is nan/inf (!) *** ")
+			logger.info(" *** model_complexity is nan/inf (!) *** ")
+			logger.info(" *** model_complexity is nan/inf (!) *** ")
+
+		# Compute loss as -log(p(y))
+		logger.info("Done! Returning loss...")
+		loss_val = -data_fit - model_complexity # Flip the sign to get a loss
+
+		logger.info("data_fit: {0:f}".format(data_fit.numpy()[0,0]))
+		logger.info("model_complexity: {0:f}".format(model_complexity.numpy()[0]))
+
+		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
+			loss_val = tf.constant([self.loss4nancases])
+
+		logger.info("loss_val: {0:f}".format(loss_val.numpy().reshape((1))[0]))
+
+		return loss_val
+
+
 	# @tf.function
 	def get_prior_cov_inverse(self):
 		"""
 
 		This is needed for (a) predictive distributions and (b) loss function.
 		
-		cov(f(x)) = cov(phi(x)*beta) = phi(x)^T @ Sigma0 @ phi(x) + sigma_n^2
+		cov(y(x)) = cov(f(x) + noise) = cov(phi(x)*beta + noise) = phi(x)^T @ Sigma0 @ phi(x) + sigma_n^2
 		Computing the inverse of cov(f(x)) scales O(N^3) where N is the number of datapoints. We wanna change that to O(M^3N),
 		where M is the number of features. To that end, we use the matrix inversion lemma, and obtain:
 
-		Kinv = cov(f(x))^{-1} = sigma_n^{-2} * ( I - phi(x)^T @ A^{-1} @ phi(x) ), with A = L.L^T and L being computed at self._update_features()
+		Kinv = cov(y(x))^{-1} = sigma_n^{-2} * ( I - phi(x)^T @ A^{-1} @ phi(x) ), with A = L.L^T and L being computed at self._update_features()
 		"""
-		Kinv = 1/self.get_noise_var()*( tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) ) # [Npoints,Npoints]
-		return Kinv
+
+		Kinv_no_noise = tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) # [Npoints,Npoints]
+
+
+		# # if cov_beta_prior_chol=Sigma0 is diagonal, the computation simplifies
+		# if self.prior_Sigma0_is_diagonal:
+		# 	aux = tf.reshape(1./tf.linalg.diag_part(cov_beta_prior_chol),(-1,1))*tf.transpose(self.PhiX) # [M,1] * [M,N] (row-wise product)
+		# 	Kinv_no_noise = tf.eye(self.X.shape[0]) - tf.transpose(aux) @ aux # [Npoints,Npoints]
+		# else:
+		# 	Kinv_no_noise = tf.eye(self.X.shape[0]) - self.PhiX @ tf.linalg.cholesky_solve(self.Lchol, tf.transpose(self.PhiX)) # [Npoints,Npoints]
+
+		Kinv = (1/self.get_noise_var())*Kinv_no_noise # [Npoints,Npoints]
+		return Kinv, Kinv_no_noise
 
 	# @tf.function
-	def get_log_det_prior_cov_inverse(self,Kinv=None):
+	def get_log_det_prior_cov_inverse(self,Kinv_no_noise):
 		"""
 
 		See the explanation in self.get_prior_cov_inverse()
 
 		This is an implementation of log(det(Kinv)), which is numerically more stable than the direct approach
 
+		This has an unavoidable cost of O(N^3)
+
 		"""
 
-		if Kinv is None:
-			Kinv = self.get_prior_cov_inverse()
-
-		Kinv_no_noise = self.get_noise_var() * Kinv # [Npoints,Npoints]
 		log_det_Kinv_no_noise = tf.linalg.logdet(Kinv_no_noise)
 
 		return log_det_Kinv_no_noise - 2.*Kinv_no_noise.shape[0]*self.get_log_noise_std()
@@ -352,7 +442,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		nu = self.get_nu()
 
 		# Compute data fit:
-		Kinv = self.get_prior_cov_inverse()
+		Kinv, Kinv_no_noise = self.get_prior_cov_inverse()
 		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
 		term_data_fit = tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
 		assert tf.squeeze(term_data_fit < 0.0) == False
@@ -363,56 +453,13 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
 		"""
-		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv)
+		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv_no_noise)
 
 		# Compute constant terms:
 		const = tf.math.lgamma(0.5*(nu + self.X.shape[0])) - 0.5*self.X.shape[0]*tf.math.log(math.pi*(nu-2.)) - tf.math.lgamma(0.5*nu)
 
 		# Compute loss as -log(p(y))
 		loss_val = -data_fit - model_complexity - const
-
-		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
-			pdb.set_trace()
-
-		return loss_val
-
-	# @tf.function
-	def get_MLII_loss_gaussian(self):
-		"""
-
-		TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
-
-		TODO:
-		1) We're mixing the prior mean with the posterior covariance. See Rasmussen
-
-
-		"""
-
-
-		raise NotImplementedError("Here we need the inverse of the prior; but the equations look like the predictive distribution; double check we're doing the right thing....")
-		raise NotImplementedError("Actually, check M. Deisenroth, Mathematics for Machine Learning, 2020, Sec. 9.3.5")
-
-		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
-		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-
-		# Compute data fit:
-		logger.info("Computing data fit term...")
-		Kinv = self.get_prior_cov_inverse()
-		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
-		data_fit = -0.5*tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
-
-		# Compute model complexity:
-		logger.info("Computing model complexity term...")
-		"""
-		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
-		"""
-		# model_complexity = 0.5*tf.linalg.logdet(Kinv)
-		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv) # This operation is O(N^3), where N is the number of datapoints
-
-		# Compute loss as -log(p(y))
-		logger.info("Done! Returning loss...")
-		loss_val = -data_fit - model_complexity
 
 		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
 			pdb.set_trace()
@@ -468,6 +515,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	def get_MLII_loss(self,which_process):
 		if which_process == "gaussian":
 			return self.get_MLII_loss_gaussian()
+			# return self.get_MLII_loss_gaussian_inefficient()
 		elif which_process == "student-t":
 			return self.get_MLII_loss_student_t()
 
@@ -490,6 +538,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		"""
 
 		logger.info("Training the model...")
+		str_banner = " << Training the delta omegas >> "
 
 		# https://www.tensorflow.org/api_docs/python/tf/keras/optimizers/Adam
 		optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
@@ -498,19 +547,37 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		done = False
 		loss_value_curr = float("Inf")
 		trainable_weights_best = self.get_weights()
-		while epoch < self.epochs and not done:
+		self.loss_vec = np.zeros(self.Nepochs)
+		time_elapsed_vec = np.zeros(self.Nepochs)
+		print_every = 10
+		while epoch < self.Nepochs and not done:
+
+			time_start = time.time()
+
+			if (epoch+1) % print_every == 0:
+				logger.info("="*len(str_banner))
+				logger.info(str_banner)
+				logger.info(" << Epoch {0:d} / {1:d} >> ".format(epoch+1, self.Nepochs))
+				logger.info("="*len(str_banner))
 
 			with tf.GradientTape() as tape:
 				loss_value = self.get_MLII_loss(which_process=self.which_process)
 
-			logger.info("Training the model... 1")
+			# Compute gradients:
 			grads = tape.gradient(loss_value, self.trainable_weights)
-			logger.info("Training the model... 2")
+
+			# Check for Nan grads:
+			grads_nan = [grad_el is None for grad_el in grads]
+			if np.any(np.array(grads_nan)):
+				logger.info("(!!!!) Gradients are NONE!!!!!!!! -> Setting random gradient direction ...")
+				pdb.set_trace()
+				grads = 0.01*tf.random.normal((len(self.trainable_weights),1))
+
+			# Apply gradients:
 			optimizer.apply_gradients(zip(grads, self.trainable_weights))
-			logger.info("Training the model... 3")
 
 			if (epoch+1) % 10 == 0:
-				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.epochs, float(loss_value)))
+				logger.info("Training loss at epoch %d / %d: %.4f" % (epoch+1, self.Nepochs, float(loss_value)))
 
 			if loss_value <= self.stop_loss_val:
 				done = True
@@ -519,8 +586,23 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 				trainable_weights_best = self.get_weights()
 				loss_value_curr = loss_value
 			
+			# Register values:
+			self.loss_vec[epoch] = tf.squeeze(loss_value)
+			
+			time_elapsed_vec[epoch] = time.time() - time_start
+
 			epoch += 1
-			logger.info("Training the model... 4")
+
+			# Report time:
+			# time_per_epoch_avg = np.mean(time_elapsed_vec[0:epoch])
+			time_per_epoch_avg = time_elapsed_vec[epoch-1] # Estimated remaining time based on the elapsed time of the last iteration
+			if epoch % print_every == 0:
+				logger.info("    * Elapsed time per epoch: {0:.2f} sec.".format(time_per_epoch_avg))
+				remaining_time = time_per_epoch_avg*(self.Nepochs-epoch)
+				if remaining_time > 60.:
+					logger.info("    * Remaining time: {1:.2f} min.".format(self.Nepochs,remaining_time/60.))
+				else:
+					logger.info("    * Remaining time: {1:.2f} sec.".format(self.Nepochs,remaining_time))
 
 		if done == True:
 			logger.info("Training finished because loss_value = {0:f} (<= {1:f})".format(float(loss_value),float(self.stop_loss_val)))
