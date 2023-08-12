@@ -1,4 +1,4 @@
-# Domain-informed multi-output Gaussian-process state-space model using harmonic features
+**Domain-informed multi-output Gaussian-process state-space model using harmonic features**
 Auxiliar repository for our [out-of-distribution project](https://github.com/alonrot/ood_project).
 
 Features
