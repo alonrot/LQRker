@@ -1,5 +1,5 @@
-# Introduction
-Auxiliar repository for the [out-of-distribution project](https://github.com/alonrot/ood_project).
+# Domain-informed multi-output Gaussian-process state-space model using harmonic features
+Auxiliar repository for our [out-of-distribution project](https://github.com/alonrot/ood_project).
 
 Features
 + Implementation of a multi-output Gaussian-process state-space model using the Karhunen–Loève expansion (also known as reduced-rank or weight-space view)
