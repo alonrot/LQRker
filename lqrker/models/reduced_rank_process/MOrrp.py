@@ -12,7 +12,7 @@ import pickle
 from lqrker.utils.common import CommonUtils
 import time
 
-from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures, RRPDiscreteCosineFeaturesVariableIntegrationStep
+from lqrker.models import RRPRegularFourierFeatures, RRPDiscreteCosineFeatures, RRPLinearFeatures, RRPDiscreteCosineFeaturesVariableIntegrationStep, RRDubinsCarFeatures
 from lqrker.spectral_densities.base import SpectralDensityBase
 from lqrker.utils.parsing import get_logger
 logger = get_logger(__name__)
@@ -54,8 +54,9 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		self.learn_noise_model = cfg.gpmodel.hyperpars.noise_std_process.learn
 		if self.learn_noise_model: logger.info("Learning the model noise ...")
 
-		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures","RRPDiscreteCosineFeaturesVariableIntegrationStep"]
+		assert cfg.gpmodel.which_features in ["RRPLinearFeatures", "RRPDiscreteCosineFeatures", "RRPRegularFourierFeatures", "RRPRandomFourierFeatures","RRPDiscreteCosineFeaturesVariableIntegrationStep","RRDubinsCarFeatures"]
 
+		self.Nfeat = None
 		self.rrgpMO = [None]*self.dim_out
 		for ii in range(self.dim_out):
 
@@ -70,11 +71,17 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 			elif cfg.gpmodel.which_features == "RRPDiscreteCosineFeaturesVariableIntegrationStep":
 				# self.rrgpMO[ii] = RRPDiscreteCosineFeaturesVariableIntegrationStep(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
 				self.rrgpMO[ii] = RRPDiscreteCosineFeaturesVariableIntegrationStep(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density[ii],dim_out_ind=ii)
+				if ii == 0: self.Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
+				else: assert self.Nfeat == self.rrgpMO[ii].S_samples_vec.shape[0]
 
 			elif cfg.gpmodel.which_features == "RRPRegularFourierFeatures":
 				self.rrgpMO[ii] = RRPRegularFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
 			elif cfg.gpmodel.which_features == "RRPRandomFourierFeatures":
 				self.rrgpMO[ii] = RRPRandomFourierFeatures(dim=self.dim_in,cfg=cfg.gpmodel,spectral_density=spectral_density,dim_out_ind=ii)
+
+			elif cfg.gpmodel.which_features == "RRDubinsCarFeatures":
+				self.rrgpMO[ii] = RRDubinsCarFeatures(dim=self.dim_in,cfg=cfg.gpmodel,dim_out_ind=ii)
+				self.Nfeat = 1
 
 			# self.rrgpMO[ii].select_output_dimension(dim_out_ind=ii)
 
@@ -307,16 +314,17 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		state_trajectories_all = tf.TensorArray(dtype=tf.float32,size=Nrollouts,dynamic_size=False) # [Nrollouts,traj_length,self.dim_out]
 
 		assert when2sample in ["once_per_class_instantiation","once_per_rollout","once_per_timestep"]
-		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
+		Nfeat = self.Nfeat
 		if when2sample == "once_per_class_instantiation":
 			if self.sample_mv0 is None: 
 				self.sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
-				raise NotImplementedError("We shoudl not enter here because self.update_dataset_predictive_loss() is assumed to be called first")
+				# raise NotImplementedError("We shoudl not enter here because self.update_dataset_predictive_loss() is assumed to be called first")
 			sample_mv0 = self.sample_mv0
 			logger.info("Sampling once per class instantiation ...")
 		elif when2sample == "once_per_rollout": # Pre-sample the noise vector that wil characterize the models, one per roll-out. Keep the same sample (i.e., model) accross all calls to this function _rollout_model_given_control_sequence_tf()
 			sample_mv0 = tf.random.normal(shape=(Nrollouts,Nfeat,Nsamples),mean=0.0,stddev=1.0) # [Nrollouts,Nfeat,Nsamples=1]
 			logger.info("Sampling once per roll-out; resampling ...")
+			# pdb.set_trace()
 		elif when2sample == "once_per_timestep":
 			sample_mv0 = [None]*Nrollouts
 			logger.info("Sampling once per timestep; resampling ...")
@@ -359,7 +367,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 	def _get_negative_log_evidence_and_predictive_trajectory_chunk(self,Xstate_real,u_traj_real,Nsamples,Nrollouts,str_progress_bar="",from_prior=False,scale_loss_entropy=1.0,scale_prior_regularizer=1.0,when2sample="once_per_timestep",predictions_module=None):
 		"""
 
-		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1
+		Xstate_real: [Nrollouts,traj_length,self.dim_out], Nrollouts=1 (observations)
 
 		return:
 			loss_val_avg: scalar [,]
@@ -602,8 +610,7 @@ class MultiObjectiveReducedRankProcess(tf.keras.layers.Layer):
 		self.scale_prior_regularizer = scale_prior_regularizer
 		self.Nrollouts = Nrollouts
 
-		Nfeat = self.rrgpMO[0].S_samples_vec.shape[0]
-		self.sample_mv0 = CommonUtils.sample_standard_multivariate_normal_inside_confidence_set(Nsamples=Nrollouts,Nels=Nfeat,min_prob_chi2=0.80) # [Nrollouts,Nfeat,Nsamples=1]
+		self.sample_mv0 = CommonUtils.sample_standard_multivariate_normal_inside_confidence_set(Nsamples=Nrollouts,Nels=self.Nfeat,min_prob_chi2=0.80) # [Nrollouts,Nfeat,Nsamples=1]
 		assert self.sample_mv0.shape[0] == Nrollouts
 		logger.info("Setting the first rollout to the mean")
 		self.sample_mv0[0,:] = 0.0

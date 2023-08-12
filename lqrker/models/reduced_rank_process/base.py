@@ -162,7 +162,9 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		# ----------------------------------------------------------------------------------------------------------
 
 		# Spectral density to be used:
-		
+		if spectral_density is None: # This case is only activated when this class is inherited by child class RRDubinsCarFeatures()
+			return
+
 		if spectral_density.Sw_points.ndim == 3:
 			pdb.set_trace()
 			assert spectral_density.phi_samples_vec.ndim == 3
@@ -335,13 +337,24 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 	def get_MLII_loss_gaussian(self):
 		"""
 	
-		Following M. Deisenroth, Mathematics for Machine Learning, 2020, Sec. 9.3.5
+		Following:
+		[1] Z. Wang, et al., eq. (2.6), Batched large-scale Bayesian optimization in high-dimensional spaces (AISTATS, 2018)
+		[2] M. Deisenroth, Mathematics for Machine Learning, 2020, Sec. 9.3.5
+
 		"""
+
+		# raise NotImplementedError("Reimplement as in [1]")
+
 
 		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
 		# self.prior_beta_already_computed = False
 		# mean_beta_prior, chol_cov_beta_prior = self.get_prior_beta_distribution() # This sets self.prior_beta_already_computed=True
 		# PhiX = self.get_features_mat(self.X) # [Npoints,Nfeat]
+
+
+
+
+
 
 		# Compute data fit:
 		logger.info("Computing data fit term...")
@@ -411,7 +424,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		return Kinv, Kinv_no_noise
 
 	# @tf.function
-	def get_log_det_prior_cov_inverse(self,Kinv_no_noise):
+	def get_log_det_prior_cov_inverse(self,Lchol):
 		"""
 
 		See the explanation in self.get_prior_cov_inverse()
@@ -422,94 +435,13 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		"""
 
-		log_det_Kinv_no_noise = tf.linalg.logdet(Kinv_no_noise)
+		raise NotImplementedError("What is N in the equation below?")
 
-		return log_det_Kinv_no_noise - 2.*Kinv_no_noise.shape[0]*self.get_log_noise_std()
+		log_det_Kinv = -2.*N*self.get_log_noise_std() + 2.*tf.linalg.logdet(Lchol)
 
-	# @tf.function
-	def get_MLII_loss_student_t(self):
-		"""
+		# log_det_Kinv_no_noise = tf.linalg.logdet(Kinv_no_noise)
 
-		Compute the negative log evidence for a multivariate Student-t distribution as in [*].
-
-		[*] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In *Artificial intelligence and statistics* (pp. 877-885). PMLR.
-		"""
-
-		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
-		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-		self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-
-		nu = self.get_nu()
-
-		# Compute data fit:
-		Kinv, Kinv_no_noise = self.get_prior_cov_inverse()
-		mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
-		term_data_fit = tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
-		assert tf.squeeze(term_data_fit < 0.0) == False
-		# term_data_fit_clipped = tf.clip_by_value(term_data_fit,clip_value_min=0.0,clip_value_max=float("Inf"))
-		data_fit = -0.5*(nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (nu-2.) )
-
-		# Compute model complexity:
-		"""
-		-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
-		"""
-		model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv_no_noise)
-
-		# Compute constant terms:
-		const = tf.math.lgamma(0.5*(nu + self.X.shape[0])) - 0.5*self.X.shape[0]*tf.math.log(math.pi*(nu-2.)) - tf.math.lgamma(0.5*nu)
-
-		# Compute loss as -log(p(y))
-		loss_val = -data_fit - model_complexity - const
-
-		if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
-			pdb.set_trace()
-
-		return loss_val
-
-	# @tf.function
-	def get_MLII_loss_gaussian_predictive(self,xpred):
-		"""
-
-		xpred: [Npoints,dim_in]
-
-		TODO:
-		1) We're mixing the prior mean with the posterior covariance. See Rasmussen
-		2) Can we get the loss using only the cholesky?
-		3) We need to add the noise to the covariance
-
-
-
-		TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
-		"""
-
-		raise NotImplementedError
-
-		# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
-		# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-		self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
-
-		mean_beta, cov_beta_chol = self.predict_beta(from_prior=False)
-
-		logger.info("Computing matrix of features Phi(xpred) ...")
-		Phi_pred = self.get_features_mat(xpred) # [Npoints, Nfeat]
-
-		# pdb.set_trace()
-		mean_pred = Phi_pred @ mean_beta # [Npoints,1]
-		cov_pred_chol = Phi_pred @ cov_beta_chol # [Npoints, Nfeat]
-		# They should both be: [Npoints,]
-
-		cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol)
-
-		# pdb.set_trace()
-		# data_fit = -0.5*((self.Y - mean_pred)/cov_pred_chol)**2
-
-		# aux = (self.Y - mean_pred) @ cov_pred_chol
-
-		# model_complexity = -0.5*tf.math.log(2.*math.pi) * cov_pred_chol
-
-		# loss_val = 
-
-		return loss_val
+		# return log_det_Kinv_no_noise - Kinv_no_noise.shape[0]*(tf.math.log(2.*np.pi) + 2.*self.get_log_noise_std())
 
 	# @tf.function
 	def get_MLII_loss(self,which_process):
@@ -651,7 +583,6 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 		PhiXTPhiX = tf.transpose(PhiX) @ PhiX
 		Sigma_weights_inv_times_noise_var = self.get_Sigma_weights_inv_times_noise_var()
-		# pdb.set_trace()
 
 		AA_sym = PhiXTPhiX + Sigma_weights_inv_times_noise_var
 		BB_sym = 0.5*(AA_sym + tf.transpose(AA_sym)) # Ensure symmetry. Due to numerical imprecisions, the matrix might not always be completely symmetric
@@ -697,6 +628,7 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 			logger.info("Re-computing predictions ...")
 
 		# Get mean:
+		# pdb.set_trace()
 		PhiXY_plus_mean_term = tf.transpose(self.PhiX) @ self.Y + self.get_Sigma_weights_inv_times_noise_var() @ self.get_prior_mean()
 		# mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term) / np.sqrt(1000.)
 		mean_beta = tf.linalg.cholesky_solve(self.Lchol, PhiXY_plus_mean_term)
@@ -848,6 +780,9 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		aux = tf.reshape(mean_beta,(-1,1)) + cov_beta_chol @ sample_mv0 # [Nfeat,1] + [Nfeat,Nfeat] @ [Nfeat,Nsamples]
 
 		# logger.info("self.dim_out_ind = {0:d} ...".format(self.dim_out_ind))
+		# print("aux: ",aux)
+		# print("mean_beta: ",mean_beta)
+		# print("cov_beta_chol: ",cov_beta_chol)
 		# print("aux: ",aux[0:5,0:5])
 		# print("mean_beta: ",mean_beta[0:5,0:5])
 		# print("cov_beta_chol: ",cov_beta_chol[0:5,0:5])
@@ -860,6 +795,8 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 
 			# logger.info("self.dim_out_ind = {0:d} ...".format(self.dim_out_ind))
 			# print("aux: ",aux[0:5,0:5])
+			# print("aux: ",aux)
+			# print("feat_mat: ",self.get_features_mat(x))
 
 			return self.get_features_mat(x) @ aux # [Npoints, Nfeat] @ [Nfeat,Nsamples] = [Npoints,Nsamples]
 
@@ -1063,3 +1000,88 @@ class ReducedRankProcessBase(ABC,tf.keras.layers.Layer):
 		raise NotImplementedError
 
 
+
+	# # @tf.function
+	# def get_MLII_loss_student_t(self):
+	# 	"""
+
+	# 	Compute the negative log evidence for a multivariate Student-t distribution as in [*].
+
+	# 	[*] Shah, A., Wilson, A. and Ghahramani, Z., 2014, April. Student-t processes as alternatives to Gaussian processes. In *Artificial intelligence and statistics* (pp. 877-885). PMLR.
+	# 	"""
+
+	# 	# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
+	# 	# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+	# 	self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+
+	# 	nu = self.get_nu()
+
+	# 	# Compute data fit:
+	# 	Kinv, Kinv_no_noise = self.get_prior_cov_inverse()
+	# 	mean_prior = self.PhiX @ self.get_prior_mean() # [Npoints,1]
+	# 	term_data_fit = tf.transpose(self.Y - mean_prior) @ (Kinv @ (self.Y - mean_prior))
+	# 	assert tf.squeeze(term_data_fit < 0.0) == False
+	# 	# term_data_fit_clipped = tf.clip_by_value(term_data_fit,clip_value_min=0.0,clip_value_max=float("Inf"))
+	# 	data_fit = -0.5*(nu + self.X.shape[0])*tf.math.log1p( term_data_fit / (nu-2.) )
+
+	# 	# Compute model complexity:
+	# 	"""
+	# 	-0.5*log(det(K)) = -0.5*log(1/det(Kinv)) = 0.5*log(det(Kinv))
+	# 	"""
+	# 	model_complexity = 0.5*self.get_log_det_prior_cov_inverse(Kinv_no_noise)
+
+	# 	# Compute constant terms:
+	# 	const = tf.math.lgamma(0.5*(nu + self.X.shape[0])) - 0.5*self.X.shape[0]*tf.math.log(math.pi*(nu-2.)) - tf.math.lgamma(0.5*nu)
+
+	# 	# Compute loss as -log(p(y))
+	# 	loss_val = -data_fit - model_complexity - const
+
+	# 	if tf.math.is_nan(loss_val) or tf.math.is_inf(loss_val):
+	# 		pdb.set_trace()
+
+	# 	return loss_val
+
+	# # @tf.function
+	# def get_MLII_loss_gaussian_predictive(self,xpred):
+	# 	"""
+
+	# 	xpred: [Npoints,dim_in]
+
+	# 	TODO:
+	# 	1) We're mixing the prior mean with the posterior covariance. See Rasmussen
+	# 	2) Can we get the loss using only the cholesky?
+	# 	3) We need to add the noise to the covariance
+
+
+
+	# 	TODO: Do not update features unless the hyperparameters have changed. Have a way to detect that.
+	# 	"""
+
+	# 	# raise NotImplementedError
+
+	# 	# Compute relevant variables without updating the global self.Lchol, self.PhiX yet
+	# 	# Lchol, PhiX = self._update_features() # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+	# 	self._update_features(verbosity=True) # chol(PhiXTPhiX + Sigma_weights_inv_times_noise_var) [Nfeat,Nfeat] ; PhiX [Npoints, Nfeat]
+
+	# 	mean_beta, cov_beta_chol = self.predict_beta(from_prior=False)
+
+	# 	logger.info("Computing matrix of features Phi(xpred) ...")
+	# 	Phi_pred = self.get_features_mat(xpred) # [Npoints, Nfeat]
+
+	# 	# pdb.set_trace()
+	# 	mean_pred = Phi_pred @ mean_beta # [Npoints,1]
+	# 	cov_pred_chol = Phi_pred @ cov_beta_chol # [Npoints, Nfeat]
+	# 	# They should both be: [Npoints,]
+
+	# 	cov_pred = cov_pred_chol @ tf.transpose(cov_pred_chol)
+
+	# 	# pdb.set_trace()
+	# 	# data_fit = -0.5*((self.Y - mean_pred)/cov_pred_chol)**2
+
+	# 	# aux = (self.Y - mean_pred) @ cov_pred_chol
+
+	# 	# model_complexity = -0.5*tf.math.log(2.*math.pi) * cov_pred_chol
+
+	# 	# loss_val = 
+
+	# 	return loss_val

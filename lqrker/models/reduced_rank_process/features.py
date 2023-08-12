@@ -195,6 +195,55 @@ class RRPDiscreteCosineFeaturesVariableIntegrationStep(ReducedRankProcessBase):
 		return out_mat
 
 
+
+class RRDubinsCarFeatures(ReducedRankProcessBase):
+
+
+	def __init__(self, dim: int, cfg: dict, dim_out_ind=0):
+
+		super().__init__(dim,cfg,spectral_density=None,dim_out_ind=dim_out_ind)
+
+		assert dim_out_ind in [0,1,2]
+		self.dim_out_ind = dim_out_ind
+
+	def get_features_mat(self,X):
+		"""
+
+		X: [Nxpoints, dim_in]
+		return: PhiX: [Nxpoints, Nomegas]
+		"""
+
+		deltaT = 0.01
+
+		st = X[:,0:3] # [xt,yt,tht]
+		ut = X[:,3::] # [vt, wt]
+
+		if self.dim_out_ind == 0:
+			feat_mat = deltaT * tf.math.cos(st[:,2]) * ut[:,0]
+		elif self.dim_out_ind == 1:
+			feat_mat = deltaT * tf.math.sin(st[:,2]) * ut[:,0]
+		elif self.dim_out_ind == 2:
+			feat_mat = deltaT * ut[:,1]
+
+		# It is implicit that Nomegas=1 because this kernel is based on the true dynamics
+
+		return tf.cast(tf.reshape(feat_mat,(-1,1)),dtype=tf.float32)
+
+	def get_prior_mean(self):
+		prior_mean_factor = self.get_prior_mean_factor()
+		prior_mean = tf.ones((1,1)) * prior_mean_factor # [Nomegas,1]
+		return prior_mean
+
+	def get_cholesky_of_cov_of_prior_beta(self):
+		return tf.linalg.diag(tf.math.sqrt(self.get_prior_variance()*tf.ones((1)))) # [Nomegas,Nomegas]
+		
+	def get_Sigma_weights_inv_times_noise_var(self):
+		diag_els = 1. / (tf.ones((1))*self.get_prior_variance()) # [Nomegas,]
+		out_mat = self.get_noise_var() * tf.linalg.diag(diag_els) # [Nomegas,Nomegas]
+		return out_mat
+
+
+
 class RRPRegularFourierFeatures(ReducedRankProcessBase):
 	"""
 
